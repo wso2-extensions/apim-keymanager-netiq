@@ -86,12 +86,7 @@
             <url>http://maven.wso2.org/nexus/content/repositories/snapshots/</url>
         </snapshotRepository>
     </distributionManagement>
-    <scm>
-        <connection>scm:git:https://github.com/wso2-extensions/apim-keymanager-okta.git</connection>
-        <url>https://github.com/wso2-extensions/apim-keymanager-okta.git</url>
-        <developerConnection>scm:git:https://github.com/wso2-extensions/apim-keymanager-okta</developerConnection>
-        <tag>HEAD</tag>
-    </scm>
+
     <build>
         <plugins>
             <plugin>
@@ -104,7 +99,7 @@
                         <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
                         <Bundle-Name>${project.artifactId}</Bundle-Name>
                         <Export-Package>
-                            org.wso2.okta.client.*;version="1.0.0"
+                            org.wso2.nam.client.*;version="1.0.0"
                         </Export-Package>
                     </instructions>
                 </configuration>
