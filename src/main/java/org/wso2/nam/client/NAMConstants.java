@@ -57,6 +57,9 @@ public class NAMConstants {
     public static final String ACTIVE = "active";
     public static final String ACCESS_TOKEN_EXPIRY = "exp";
     public static final String REFRESH_TOKEN = "refresh_token";
+    public static final String CLIENT_CREDENTIALS = "client_credentials";
+    public static final String  TOKEN_SCOPE = "tokenScope";
+    public static final String TOKEN_GRANT_TYPE = "tokenGrantType";
 
 
     public static final String NAM_INSTANCE_URL = "namInstanceUrl";
