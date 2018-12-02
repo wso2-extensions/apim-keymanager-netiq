@@ -19,6 +19,7 @@ public class NAMConstants {
     public static final String AUTHENTICATION_SSWS = "SSWS ";
     public static final String OAUTH2 = "/oauth2/";
     public static final String BEARER = "Bearer ";
+    public static final String AUDIENCE ="audience";
 
     public static final String CLIENT_ID = "client_id";
     public static final String CLIENT_NAME = "client_name";
@@ -60,7 +61,14 @@ public class NAMConstants {
     public static final String CLIENT_CREDENTIALS = "client_credentials";
     public static final String  TOKEN_SCOPE = "tokenScope";
     public static final String TOKEN_GRANT_TYPE = "tokenGrantType";
+    public static final String USER_ID = "user_id";
+    public static final String ISSUER = "issuer";
+    public static final String TOKEN_ID = "token_id";
 
+    public static final String CONFIG_CLIENT_ID = "clientId";
+    public static final String CONFIG_CLIENT_SECRET = "secret";
+    public static final String CONFIG_USERNAME = "username";
+    public static final String CONFIG_PASSWORD = "password";
 
     public static final String NAM_INSTANCE_URL = "namInstanceUrl";
 
