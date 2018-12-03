@@ -67,6 +67,7 @@ public class NamOauthClient extends AbstractKeyManager {
     private KeyManagerConfiguration configuration;
     private String namInstanceURL;
     private String apiKey;
+    private String accessToken;
 
     @Override
     public void loadConfiguration(KeyManagerConfiguration keyManagerConfiguration) throws APIManagementException {
@@ -85,18 +86,7 @@ public class NamOauthClient extends AbstractKeyManager {
                     clientName));
         }
 
-        JSONObject accessTokenResponse = getAccessTokenWithPassword(oAuthApplicationInfo);
-        if (accessTokenResponse == null) {
-            handleException(String.format("Falied to get a new access token while creating a new application for %s.",
-                    clientName));
-        }
-
-        String accessToken = (String) accessTokenResponse.get(NAMConstants.ACCESS_TOKEN);
-        String tokenType = (String) accessTokenResponse.get(NAMConstants.TOKEN_TYPE);
-
-        if (StringUtils.isEmpty(tokenType)) {
-            tokenType = NAMConstants.BEARER;
-        }
+        updateAccessToken(oAuthApplicationInfo);
 
         String scope = (String) oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_SCOPE);
         Object tokenGrantType = oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_GRANT_TYPE);
@@ -109,7 +99,7 @@ public class NamOauthClient extends AbstractKeyManager {
         HttpPost httpPost = new HttpPost(registrationEndpoint);
         try {
             httpPost.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATIN_FORM_URL_ENCODED);
-            httpPost.setHeader(NAMConstants.AUTHORIZATION, tokenType  + " " + accessToken);
+            httpPost.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
             httpPost.setEntity(urlEncodedFormEntity);
 
             HttpResponse response = httpClient.execute(httpPost);
@@ -184,7 +174,7 @@ public class NamOauthClient extends AbstractKeyManager {
             httpPut.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + apiKey);
             if (log.isDebugEnabled()) {
                 log.debug(String.format("Invoking HTTP request to update client in NetIQ Access Manager for " +
-                                "consumer key %s", clientId));
+                        "consumer key %s", clientId));
             }
             HttpResponse response = httpClient.execute(httpPut);
             int statusCode = response.getStatusLine().getStatusCode();
@@ -210,10 +200,10 @@ public class NamOauthClient extends AbstractKeyManager {
                     "application for %s.", clientId), e);
         } catch (IOException e) {
             handleException(String.format("Error occurred when reading response body while updating client " +
-                            "application for %s.", clientId), e);
+                    "application for %s.", clientId), e);
         } catch (ParseException e) {
             handleException(String.format("Error occurred when parsing response while updating client application " +
-                            "for %s.", clientId), e);
+                    "for %s.", clientId), e);
         } finally {
             closeResources(reader, httpClient);
         }
@@ -302,11 +292,11 @@ public class NamOauthClient extends AbstractKeyManager {
                 return createOAuthAppInfoFromResponse((JSONObject) responseJSON);
             } else {
                 handleException(String.format("Error occurred while retrieving client application for consumer " +
-                                "key %s.", clientId));
+                        "key %s.", clientId));
             }
         } catch (ParseException e) {
             handleException(String.format("Error occurred while parsing response when retrieving client application " +
-                            "for %s.", clientId), e);
+                    "for %s.", clientId), e);
         } catch (IOException e) {
             handleException(String.format("Error while reading response body when retrieving client application of %s.",
                     clientId), e);
@@ -363,87 +353,59 @@ public class NamOauthClient extends AbstractKeyManager {
 
     @Override
     public AccessTokenInfo getTokenMetaData(String accessToken) throws APIManagementException {
-        if (log.isDebugEnabled()) {
-            log.debug(String.format("Getting access token metadata from authorization server. Access token %s",
-                    accessToken));
-        }
-        String tokenInfoEndpoint = namInstanceURL + NAMConstants.TOKEN_INFO_ENDPOINT;
+        JSONObject jsonResponse = doValidateAccessTokenRequest(accessToken);
         AccessTokenInfo tokenInfo = new AccessTokenInfo();
-        CloseableHttpClient httpClient = HttpClientBuilder.create().build();
 
-        HttpGet httpGet = new HttpGet(tokenInfoEndpoint);
-        httpGet.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
-        BufferedReader reader;
-        JSONObject jsonResponse;
-        try {
-            HttpResponse response = httpClient.execute(httpGet);
-            int statusCode = response.getStatusLine().getStatusCode();
+        if (jsonResponse == null) {
+            log.error(String.format("Invalid token %s.", accessToken));
+            tokenInfo.setTokenValid(false);
+            tokenInfo.setErrorcode(APIConstants.KeyValidationStatus.API_AUTH_INVALID_CREDENTIALS);
+            return tokenInfo;
+        }
+        // handle responses
+        String userId = (String) jsonResponse.get(NAMConstants.USER_ID);
+        Long expriresIn = (Long) jsonResponse.get(NAMConstants.EXPIRES_IN);
+        JSONArray scope = (JSONArray) jsonResponse.get(NAMConstants.SCOPE);
+        String audience = (String) jsonResponse.get(NAMConstants.AUDIENCE);
+        String tokenId = (String) jsonResponse.get(NAMConstants.TOKEN_ID);
+        String issuer = (String) jsonResponse.get(NAMConstants.ISSUER);
 
-            if (HttpStatus.SC_OK == statusCode) {
-                HttpEntity entity = response.getEntity();
-                if (entity == null) {
-                    handleException(String.format("Failed to read http entity from response %s " +
-                            "while getting token meta data.", response));
-                }
+        if (expriresIn == null) {
+            handleException("Mandatory parameter " + NAMConstants.EXPIRES_IN + " is missing in the response " +
+                    "when validating token.");
+        }
 
-                reader = new BufferedReader(new InputStreamReader(entity.getContent(), NAMConstants.UTF_8));
-                jsonResponse = getParsedObjectByReader(reader);
+        if (scope == null) {
+            handleException("Mandatory parameter " + NAMConstants.SCOPE + " is missing in the response " +
+                    "when validating token.");
+        }
 
-                if (jsonResponse == null) {
-                    log.error(String.format("Invalid token %s", accessToken));
-                    tokenInfo.setTokenValid(false);
-                    tokenInfo.setErrorcode(APIConstants.KeyValidationStatus.API_AUTH_INVALID_CREDENTIALS);
-                    return tokenInfo;
-                }
-                // handle responses
-                String userId = (String) jsonResponse.get(NAMConstants.USER_ID);
-                Long expriresIn = (Long) jsonResponse.get(NAMConstants.EXPIRES_IN);
-                JSONArray scope = (JSONArray) jsonResponse.get(NAMConstants.SCOPE);
-                String audience = (String) jsonResponse.get(NAMConstants.AUDIENCE);
-                String tokenId = (String) jsonResponse.get(NAMConstants.TOKEN_ID);
-                String issuer = (String) jsonResponse.get(NAMConstants.ISSUER);
+        if (StringUtils.isEmpty(userId)) {
+            handleException("Mandatory parameter " + NAMConstants.USER_ID + " is missing in the response when" +
+                    " validating token.");
+        }
 
-                if (expriresIn == null) {
-                    handleException("Mandatory parameter " + NAMConstants.EXPIRES_IN + " is missing in the response " +
-                            "when validating token.");
-                }
+        if (StringUtils.isEmpty(audience)) {
+            handleException("Mandatory parameter " + NAMConstants.AUDIENCE + " is missing in the response " +
+                    "when validating token.");
+        }
 
-                if (scope == null) {
-                    handleException("Mandatory parameter " + NAMConstants.SCOPE + " is missing in the response " +
-                            "when validating token.");
-                }
+        tokenInfo.setConsumerKey(audience);
+        tokenInfo.setEndUserName(userId);
+        // TODO: 29/11/18 check expiresIn vlaue is in secs or milisecs
+        tokenInfo.setValidityPeriod(expriresIn * 1000);
+        tokenInfo.setScope(generateStringArray(scope));
 
-                if (StringUtils.isEmpty(userId)) {
-                    handleException("Mandatory parameter " + NAMConstants.USER_ID + " is missing in the response when" +
-                            " validating token.");
-                }
+        if (!StringUtils.isEmpty(tokenId)) {
+            tokenInfo.addParameter(NAMConstants.TOKEN_ID, tokenId);
+        }
 
-                if (StringUtils.isEmpty(audience)) {
-                    handleException("Mandatory parameter " + NAMConstants.AUDIENCE + " is missing in the response " +
-                            "when validating token.");
-                }
-
-                tokenInfo.setConsumerKey(audience);
-                tokenInfo.setEndUserName(userId);
-                // TODO: 29/11/18 check expiresIn vlaue is in secs or milisecs
-                tokenInfo.setValidityPeriod(expriresIn * 1000);
-                tokenInfo.setScope(generateStringArray(scope));
-
-                if (!StringUtils.isEmpty(tokenId)) {
-                    tokenInfo.addParameter(NAMConstants.TOKEN_ID, tokenId);
-                }
-
-                if (!StringUtils.isEmpty(issuer)) {
-                    tokenInfo.addParameter(NAMConstants.ISSUER, issuer);
-                }
-            }
-        } catch (IOException e) {
-            handleException("Error occurred when reading the response while getting token meta data.", e);
-        } catch (ParseException e) {
-            handleException("Error occurred when parsing response while getting token meta data.", e);
+        if (!StringUtils.isEmpty(issuer)) {
+            tokenInfo.addParameter(NAMConstants.ISSUER, issuer);
         }
         return null;
     }
+
 
     @Override
     public KeyManagerConfiguration getKeyManagerConfiguration() throws APIManagementException {
@@ -495,6 +457,63 @@ public class NamOauthClient extends AbstractKeyManager {
         return null;
     }
 
+    private void updateAccessToken(OAuthApplicationInfo info) throws APIManagementException {
+        if (accessToken == null || doValidateAccessTokenRequest(accessToken) == null) {
+            String token = getAccessTokenWithPassword(info);
+            if (StringUtils.isEmpty(token)) {
+                handleException("Failed to get a new access token for " + info.getClientId());
+            }
+            this.accessToken = token;
+        }
+    }
+
+    private boolean isAccessTokenValid(String accessToken) throws APIManagementException {
+        JSONObject response = doValidateAccessTokenRequest(accessToken);
+        if (response != null) {
+            return true;
+        }
+        return false;
+    }
+
+    private JSONObject doValidateAccessTokenRequest(String accessToken) throws APIManagementException {
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Getting access token metadata from authorization server. Access token %s",
+                    accessToken));
+        }
+        String tokenInfoEndpoint = namInstanceURL + NAMConstants.TOKEN_INFO_ENDPOINT;
+        AccessTokenInfo tokenInfo = new AccessTokenInfo();
+        CloseableHttpClient httpClient = HttpClientBuilder.create().build();
+
+        HttpGet httpGet = new HttpGet(tokenInfoEndpoint);
+        httpGet.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
+        BufferedReader reader;
+        JSONObject jsonResponse;
+        try {
+            HttpResponse response = httpClient.execute(httpGet);
+            int statusCode = response.getStatusLine().getStatusCode();
+
+            if (HttpStatus.SC_OK == statusCode) {
+                HttpEntity entity = response.getEntity();
+                if (entity == null) {
+                    handleException(String.format("Failed to read http entity from response %s " +
+                            "while getting token meta data.", response));
+                }
+
+                reader = new BufferedReader(new InputStreamReader(entity.getContent(), NAMConstants.UTF_8));
+                return getParsedObjectByReader(reader);
+            } else {
+                if (log.isDebugEnabled()) {
+                    log.debug("Status code " + statusCode + " received when trying to get token metadata.");
+                }
+            }
+        } catch (IOException e) {
+            handleException("Error occurred when reading the response while getting token meta data.", e);
+        } catch (ParseException e) {
+            handleException("Error occurred when parsing response while getting token meta data.", e);
+        }
+        return null;
+    }
+
     private OAuthApplicationInfo createOAuthAppInfoFromResponse(JSONObject response) throws APIManagementException {
         OAuthApplicationInfo appInfo = new OAuthApplicationInfo();
 
@@ -541,7 +560,7 @@ public class NamOauthClient extends AbstractKeyManager {
     }
 
     private static UrlEncodedFormEntity createPayloadFromOAuthAppInfo(OAuthApplicationInfo appInfo,
-                                       List<NameValuePair> params) throws APIManagementException {
+                                                                      List<NameValuePair> params) throws APIManagementException {
 
         String clientId = appInfo.getClientId();
         if (StringUtils.isEmpty(clientId)) {
@@ -570,7 +589,7 @@ public class NamOauthClient extends AbstractKeyManager {
         JSONObject jsonObject;
         String jsonString = appInfo.getJsonString();
         try {
-             jsonObject = (JSONObject) new JSONParser().parse(jsonString);
+            jsonObject = (JSONObject) new JSONParser().parse(jsonString);
         } catch (ParseException e) {
             throw new APIManagementException("Error while parsing json string of oAuthApplicationInfo " +
                     jsonString);
@@ -782,7 +801,7 @@ public class NamOauthClient extends AbstractKeyManager {
             }
         } catch (UnsupportedEncodingException e) {
             handleException(String.format("Error occurred when encoding while getting a new access token for %s.",
-                    clientId), e );
+                    clientId), e);
         } catch (ParseException e) {
             handleException(String.format("Error occurred when parsing the response while getting a new access token " +
                     "for %s.", clientId), e);
@@ -817,7 +836,7 @@ public class NamOauthClient extends AbstractKeyManager {
         return tokenInfo;
     }
 
-    private JSONObject getAccessTokenWithPassword(OAuthApplicationInfo info) throws APIManagementException {
+    private String getAccessTokenWithPassword(OAuthApplicationInfo info) throws APIManagementException {
         List<NameValuePair> params = new ArrayList<NameValuePair>();
         String username = configuration.getParameter(NAMConstants.USERNAME);
         String password = configuration.getParameter(NAMConstants.PASSWORD);
@@ -868,11 +887,11 @@ public class NamOauthClient extends AbstractKeyManager {
             JSONObject responseObject = getParsedObjectByReader(reader);
 
             if (HttpStatus.SC_OK == statusCode) {
-                if (responseObject != null && responseObject.containsKey(NAMConstants.ACCESS_TOKEN)) {
-                    return responseObject;
+                if (responseObject != null) {
+                    return (String) responseObject.get(NAMConstants.ACCESS_TOKEN);
                 } else {
                     handleException(String.format("Response body does not contain the %s when " +
-                            "getting a new access token while getting a new access token for %s.",
+                                    "getting a new access token while getting a new access token for %s.",
                             NAMConstants.ACCESS_TOKEN, clientId));
                 }
             } else {
