@@ -156,6 +156,7 @@ public class NamOauthClient extends AbstractKeyManager {
                     clientId));
         }
         // Getting Client Instance Url and API Key from Config.
+        updateAccessToken(oAuthApplicationInfo);
         String updateEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT + "/" + clientId;
 
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
@@ -171,7 +172,7 @@ public class NamOauthClient extends AbstractKeyManager {
             httpPut.setEntity(urlEncodedFormEntity);
             httpPut.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATION_JSON);
             // Setting Authorization Header, with API Key.
-            httpPut.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + apiKey);
+            httpPut.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
             if (log.isDebugEnabled()) {
                 log.debug(String.format("Invoking HTTP request to update client in NetIQ Access Manager for " +
                         "consumer key %s", clientId));
@@ -216,6 +217,7 @@ public class NamOauthClient extends AbstractKeyManager {
             log.debug(String.format("Deleting an OAuth client in NetIQ authorization server for the Consumer Key: %s",
                     clientId));
         }
+        updateAccessToken(null);
         // Getting Client Instance Url and API Key from Config.
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         String deleteEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT + "/"
@@ -223,7 +225,7 @@ public class NamOauthClient extends AbstractKeyManager {
 
         HttpDelete httpDelete = new HttpDelete(deleteEndpoint);
         // TODO : how should these requests be authenticated
-        httpDelete.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + apiKey);
+        httpDelete.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
         BufferedReader reader = null;
         try {
             HttpResponse response = httpClient.execute(httpDelete);
@@ -264,14 +266,24 @@ public class NamOauthClient extends AbstractKeyManager {
                     " %s", clientId));
         }
 
+        updateAccessToken(null);
+        JSONObject responseJSON = getApplication(clientId);
+
+        if (responseJSON == null) {
+            handleException("Failed to retrieve application for client id " + clientId);
+        }
+
+        return createOAuthAppInfoFromResponse(responseJSON);
+    }
+
+    private JSONObject getApplication(String clientId) throws APIManagementException {
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT;
 
         BufferedReader reader = null;
         try {
             HttpGet request = new HttpGet(registrationEndpoint);
-            // Set authorization header, with API key.
-            request.addHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + apiKey);
+            request.addHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
             if (log.isDebugEnabled()) {
                 log.debug(String.format("Invoking HTTP request to get the client details for the consumer key %s",
                         clientId));
@@ -289,7 +301,7 @@ public class NamOauthClient extends AbstractKeyManager {
             if (statusCode == HttpStatus.SC_OK) {
                 JSONParser parser = new JSONParser();
                 responseJSON = parser.parse(reader);
-                return createOAuthAppInfoFromResponse((JSONObject) responseJSON);
+                return (JSONObject) responseJSON;
             } else {
                 handleException(String.format("Error occurred while retrieving client application for consumer " +
                         "key %s.", clientId));
@@ -405,7 +417,6 @@ public class NamOauthClient extends AbstractKeyManager {
         }
         return null;
     }
-
 
     @Override
     public KeyManagerConfiguration getKeyManagerConfiguration() throws APIManagementException {
@@ -740,6 +751,10 @@ public class NamOauthClient extends AbstractKeyManager {
         }
     }
 
+    private String getNewAccessTokenWithClientCredentials(String clientId) {
+
+    }
+
     private JSONObject getParsedObjectByReader(BufferedReader reader) throws ParseException, IOException {
         JSONObject parsedObject = null;
         JSONParser parser = new JSONParser();
@@ -843,7 +858,10 @@ public class NamOauthClient extends AbstractKeyManager {
         String clientId = configuration.getParameter(NAMConstants.CLIENT_ID);
         String clientSecret = configuration.getParameter(NAMConstants.CLIENT_SECRET);
         String grantType = NAMConstants.PASSWORD;
-        String scope = (String) info.getParameter(NAMConstants.SCOPE);
+        String scope = null;
+        if (info != null) {
+            scope = (String) info.getParameter(NAMConstants.SCOPE);
+        }
 
         if (StringUtils.isEmpty(username)) {
             handleException(String.format("Mandotary parameter %s is missing in configuration.",
