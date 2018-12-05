@@ -47,6 +47,7 @@ import org.wso2.carbon.apimgt.api.model.AccessTokenRequest;
 import org.wso2.carbon.apimgt.api.model.KeyManagerConfiguration;
 import org.wso2.carbon.apimgt.api.model.OAuthAppRequest;
 import org.wso2.carbon.apimgt.api.model.OAuthApplicationInfo;
+import org.wso2.carbon.apimgt.api.model.Scope;
 import org.wso2.carbon.apimgt.impl.APIConstants;
 import org.wso2.carbon.apimgt.impl.AbstractKeyManager;
 
@@ -326,14 +327,19 @@ public class NamOauthClient extends AbstractKeyManager {
         String refreshToken = accessTokenRequest.getRefreshToken();
         String grantType = accessTokenRequest.getGrantType();
         String clientId = accessTokenRequest.getClientId();
-        String clientSecret = accessTokenRequest.getClientSecret();
+
+        String clientSecret = (String) getApplication(clientId).get(NAMConstants.CLIENT_SECRET);
+
+        if (StringUtils.isEmpty(clientId)) {
+            handleException("Mandatory parameter " + NAMConstants.CLIENT_SECRET + " is missing while requesting " +
+                    "for a new application token.");
+        }
 
         if (log.isDebugEnabled()) {
-            log.debug(String.format("Get new client access token from authorization server for the consumer key %s",
+            log.debug(String.format("Get new client access token from authorization server for the consumer key %s.",
                     clientId));
         }
 
-        revokeAccessToken(clientId, clientSecret, refreshToken);
         List<NameValuePair> parameters = new ArrayList<NameValuePair>();
         if (grantType == null) {
             grantType = NAMConstants.CLIENT_CREDENTIALS;
@@ -345,7 +351,10 @@ public class NamOauthClient extends AbstractKeyManager {
             parameters.add(new BasicNameValuePair(NAMConstants.SCOPE, scopeString));
         }
 
-        JSONObject responseJSON = getAccessTokenWithClientCredentials(clientId, clientSecret, parameters);
+        parameters.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
+        parameters.add(new BasicNameValuePair(NAMConstants.CLIENT_SECRET, clientSecret));
+
+        JSONObject responseJSON = getAccessTokenWithClientCredentials(clientId, parameters);
         if (responseJSON != null) {
             updateTokenInfo(tokenInfo, responseJSON);
             if (log.isDebugEnabled()) {
@@ -361,6 +370,11 @@ public class NamOauthClient extends AbstractKeyManager {
             }
         }
         return tokenInfo;
+    }
+
+    @Override
+    public String getNewApplicationConsumerSecret(AccessTokenRequest tokenRequest) throws APIManagementException {
+        return getClientSecret(tokenRequest.getClientId());
     }
 
     @Override
@@ -468,6 +482,24 @@ public class NamOauthClient extends AbstractKeyManager {
         return null;
     }
 
+    @Override
+    public Map<String, Set<Scope>> getScopesForAPIS(String s) throws APIManagementException {
+        return null;
+    }
+
+    private String getClientSecret(String clientId) throws APIManagementException {
+        JSONObject application = getApplication(clientId);
+        if (application == null) {
+            handleException(String.format("Retrieving applicaiton for client %s failed.", clientId));
+        }
+
+        String clientSecret = (String) application.get(NAMConstants.CLIENT_SECRET);
+        if (StringUtils.isEmpty(clientId)) {
+            handleException("Failed to retrieve client secret for the client " + clientId);
+        }
+        return clientSecret;
+    }
+
     private void updateAccessToken(OAuthApplicationInfo info) throws APIManagementException {
         if (accessToken == null || doValidateAccessTokenRequest(accessToken) == null) {
             String token = getAccessTokenWithPassword(info);
@@ -558,11 +590,6 @@ public class NamOauthClient extends AbstractKeyManager {
         }
 
         return appInfo;
-    }
-
-    private static void handleException(String msg, Exception e) throws APIManagementException {
-        log.error(msg, e);
-        throw new APIManagementException(msg, e);
     }
 
     private static void handleException(String msg) throws APIManagementException {
@@ -751,10 +778,6 @@ public class NamOauthClient extends AbstractKeyManager {
         }
     }
 
-    private String getNewAccessTokenWithClientCredentials(String clientId) {
-
-    }
-
     private JSONObject getParsedObjectByReader(BufferedReader reader) throws ParseException, IOException {
         JSONObject parsedObject = null;
         JSONParser parser = new JSONParser();
@@ -777,18 +800,16 @@ public class NamOauthClient extends AbstractKeyManager {
         }
     }
 
-    private JSONObject getAccessTokenWithClientCredentials(String clientId, String clientSecret,
-                                                           List<NameValuePair> parameters)
+    private JSONObject getAccessTokenWithClientCredentials(String clientId, List<NameValuePair> parameters)
             throws APIManagementException {
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         BufferedReader reader = null;
 
         try {
             HttpPost httpPost = new HttpPost(namInstanceURL + NAMConstants.TOKEN_ENDPOINT);
+            httpPost.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATIN_FORM_URL_ENCODED);
             httpPost.setEntity(new UrlEncodedFormEntity(parameters));
-            String encodedCredentials = getEncodedCredentials(clientId, clientSecret);
 
-            httpPost.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.AUTHENTICATION_BASIC + encodedCredentials);
             if (log.isDebugEnabled()) {
                 log.debug("Invoking HTTP request to get the access token for client " + clientId);
             }
