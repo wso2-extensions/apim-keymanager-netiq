@@ -14,7 +14,7 @@ public class NAMConstants {
     public static final String AUTHORIZATION = "Authorization";
     public static final String AUTHENTICATION_BASIC = "Basic ";
     public static final String PASSWORD = "password";
-    public static final String USERNAME = "usrename";
+    public static final String USERNAME = "username";
     public static final String REGISTRAION_API_KEY = "apiKey";
     public static final String AUTHENTICATION_SSWS = "SSWS ";
     public static final String OAUTH2 = "/oauth2/";
@@ -65,12 +65,11 @@ public class NAMConstants {
     public static final String ISSUER = "issuer";
     public static final String TOKEN_ID = "token_id";
 
-    public static final String CONFIG_CLIENT_ID = "clientId";
-    public static final String CONFIG_CLIENT_SECRET = "secret";
-    public static final String CONFIG_USERNAME = "username";
-    public static final String CONFIG_PASSWORD = "password";
-
-    public static final String NAM_INSTANCE_URL = "namInstanceUrl";
+    public static final String CONFIG_CLIENT_ID = "ClientId";
+    public static final String CONFIG_CLIENT_SECRET = "ClientSecret";
+    public static final String CONFIG_USERNAME = "Username";
+    public static final String CONFIG_PASSWORD = "Password";
+    public static final String CONFIG_NAM_INSTANCE_URL = "ServerURL";
 
     public static final String NULL_STRING = "null";
 

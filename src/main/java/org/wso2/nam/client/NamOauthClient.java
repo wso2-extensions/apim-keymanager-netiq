@@ -18,7 +18,6 @@
 
 package org.wso2.nam.client;
 
-import org.apache.axis2.json.JSONOMBuilder;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
@@ -62,6 +61,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 public class NamOauthClient extends AbstractKeyManager {
     private static final Log log = LogFactory.getLog(NamOauthClient.class);
@@ -69,12 +69,12 @@ public class NamOauthClient extends AbstractKeyManager {
     private String namInstanceURL;
     private String apiKey;
     private String accessToken;
+    private String refreshToken;
 
     @Override
     public void loadConfiguration(KeyManagerConfiguration keyManagerConfiguration) throws APIManagementException {
         this.configuration = keyManagerConfiguration;
-        namInstanceURL = configuration.getParameter(NAMConstants.NAM_INSTANCE_URL);
-        apiKey = configuration.getParameter(NAMConstants.REGISTRAION_API_KEY);
+        namInstanceURL = configuration.getParameter(NAMConstants.CONFIG_NAM_INSTANCE_URL);
     }
 
     @Override
@@ -89,12 +89,13 @@ public class NamOauthClient extends AbstractKeyManager {
 
         updateAccessToken(oAuthApplicationInfo);
 
-        String scope = (String) oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_SCOPE);
+        String[] scope = (String[]) ((String) oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_SCOPE)).split(",");
         Object tokenGrantType = oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_GRANT_TYPE);
 
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT;
         List<NameValuePair> params = new ArrayList<NameValuePair>();
+        oAuthApplicationInfo.setClientId(generateClientId());
         UrlEncodedFormEntity urlEncodedFormEntity = createPayloadFromOAuthAppInfo(oAuthApplicationInfo, params);
 
         HttpPost httpPost = new HttpPost(registrationEndpoint);
@@ -118,8 +119,9 @@ public class NamOauthClient extends AbstractKeyManager {
             // If successful a 201 will be returned.
             if (HttpStatus.SC_CREATED == statusCode) {
                 if (responseObject != null) {
-                    oAuthApplicationInfo = createOAuthAppInfoFromResponse(responseObject);
-                    if (!StringUtils.isEmpty(scope)) {
+                    oAuthApplicationInfo = createOAuthAppInfoFromResponse(responseObject,
+                            oAuthApplicationInfo.getClientId());
+                    if (scope != null) {
                         oAuthApplicationInfo.addParameter(NAMConstants.TOKEN_SCOPE, scope);
                     }
                     if (tokenGrantType != null) {
@@ -189,7 +191,7 @@ public class NamOauthClient extends AbstractKeyManager {
             JSONObject responseObject = getParsedObjectByReader(reader);
             if (statusCode == HttpStatus.SC_OK) {
                 if (responseObject != null) {
-                    return createOAuthAppInfoFromResponse(responseObject);
+                    return createOAuthAppInfoFromResponse(responseObject, clientId);
                 } else {
                     handleException("ResponseObject is empty. Can not return oAuthApplicationInfo.");
                 }
@@ -274,7 +276,7 @@ public class NamOauthClient extends AbstractKeyManager {
             handleException("Failed to retrieve application for client id " + clientId);
         }
 
-        return createOAuthAppInfoFromResponse(responseJSON);
+        return createOAuthAppInfoFromResponse(responseJSON, clientId);
     }
 
     private JSONObject getApplication(String clientId) throws APIManagementException {
@@ -324,12 +326,12 @@ public class NamOauthClient extends AbstractKeyManager {
     public AccessTokenInfo getNewApplicationAccessToken(AccessTokenRequest accessTokenRequest)
             throws APIManagementException {
         AccessTokenInfo tokenInfo = new AccessTokenInfo();
-        String refreshToken = accessTokenRequest.getRefreshToken();
         String grantType = accessTokenRequest.getGrantType();
         String clientId = accessTokenRequest.getClientId();
 
         String clientSecret = (String) getApplication(clientId).get(NAMConstants.CLIENT_SECRET);
 
+        revokeAccessToken(clientId, clientSecret, refreshToken);
         if (StringUtils.isEmpty(clientId)) {
             handleException("Mandatory parameter " + NAMConstants.CLIENT_SECRET + " is missing while requesting " +
                     "for a new application token.");
@@ -557,18 +559,24 @@ public class NamOauthClient extends AbstractKeyManager {
         return null;
     }
 
-    private OAuthApplicationInfo createOAuthAppInfoFromResponse(JSONObject response) throws APIManagementException {
+    private OAuthApplicationInfo createOAuthAppInfoFromResponse(JSONObject response, String clientId) throws APIManagementException {
         OAuthApplicationInfo appInfo = new OAuthApplicationInfo();
 
-        String clientId = (String) response.get(NAMConstants.CLIENT_ID);
         String clientName = (String) response.get(NAMConstants.CLIENT_NAME);
         String clientSecret = (String) response.get(NAMConstants.CLIENT_SECRET);
+        //String refreshToken = (String) response.get(NAMConstants.REFRESH_TOKEN);
 
         if (StringUtils.isEmpty(clientId)) {
             handleException(String.format("Mandatory parameter %s is empty in the response %s.",
                     NAMConstants.CLIENT_ID, response.toJSONString()));
         }
-        appInfo.setClientId((String) response.get(NAMConstants.CLIENT_ID));
+        appInfo.setClientId(clientId);
+
+        /*if (StringUtils.isEmpty(refreshToken)) {
+            handleException(String.format("Mandatory parameter %s is empty in the response %s.",
+                    NAMConstants.REFRESH_TOKEN, response.toJSONString()));
+        }
+        appInfo.addParameter((String) response.get(NAMConstants.REFRESH_TOKEN), refreshToken);*/
 
         if (!StringUtils.isEmpty(clientName)) {
             appInfo.setClientName(clientName);
@@ -589,6 +597,7 @@ public class NamOauthClient extends AbstractKeyManager {
             appInfo.addParameter(NAMConstants.GRANT_TYPES, response.get(NAMConstants.GRANT_TYPES));
         }
 
+
         return appInfo;
     }
 
@@ -597,20 +606,23 @@ public class NamOauthClient extends AbstractKeyManager {
         throw new APIManagementException(msg);
     }
 
-    private static UrlEncodedFormEntity createPayloadFromOAuthAppInfo(OAuthApplicationInfo appInfo,
+    private UrlEncodedFormEntity createPayloadFromOAuthAppInfo(OAuthApplicationInfo appInfo,
                                                                       List<NameValuePair> params) throws APIManagementException {
 
         String clientId = appInfo.getClientId();
-        if (StringUtils.isEmpty(clientId)) {
+        String clientName = appInfo.getClientName();
+        if (StringUtils.isEmpty(clientName)) {
             handleException("Mandatory parameter " + NAMConstants.CLIENT_ID + " is missing.");
         }
+        // todo : how to get client_id ?
         params.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
+        params.add(new BasicNameValuePair(NAMConstants.CLIENT_NAME, clientName));
 
         String redirectionUri = appInfo.getCallBackURL();
-        if (StringUtils.isEmpty(redirectionUri)) {
-            handleException("Mandatory parameter redirection uris is missing.");
+        if (!StringUtils.isEmpty(redirectionUri)) {
+//            handleException("Mandatory parameter callback URL is missing.");
+            params.add(new BasicNameValuePair(NAMConstants.REDIRECTION_URI, redirectionUri));
         }
-        params.add(new BasicNameValuePair(NAMConstants.REDIRECTION_URI, redirectionUri));
 
         String grantTypes = (String) appInfo.getParameter(NAMConstants.GRANT_TYPES);
         if (grantTypes != null) {
@@ -619,12 +631,7 @@ public class NamOauthClient extends AbstractKeyManager {
             params.add(new BasicNameValuePair(NAMConstants.GRANT_TYPES, jsonArray.toJSONString()));
         }
 
-        String clientName = appInfo.getClientName();
-        if (!StringUtils.isEmpty(clientName)) {
-            params.add(new BasicNameValuePair(NAMConstants.CLIENT_NAME, clientName));
-        }
-
-        JSONObject jsonObject;
+       JSONObject jsonObject;
         String jsonString = appInfo.getJsonString();
         try {
             jsonObject = (JSONObject) new JSONParser().parse(jsonString);
@@ -874,11 +881,12 @@ public class NamOauthClient extends AbstractKeyManager {
 
     private String getAccessTokenWithPassword(OAuthApplicationInfo info) throws APIManagementException {
         List<NameValuePair> params = new ArrayList<NameValuePair>();
-        String username = configuration.getParameter(NAMConstants.USERNAME);
-        String password = configuration.getParameter(NAMConstants.PASSWORD);
-        String clientId = configuration.getParameter(NAMConstants.CLIENT_ID);
-        String clientSecret = configuration.getParameter(NAMConstants.CLIENT_SECRET);
+        String username = configuration.getParameter(NAMConstants.CONFIG_USERNAME);
+        String password = configuration.getParameter(NAMConstants.CONFIG_PASSWORD);
+        String clientId = configuration.getParameter(NAMConstants.CONFIG_CLIENT_ID);
+        String clientSecret = configuration.getParameter(NAMConstants.CONFIG_CLIENT_SECRET);
         String grantType = NAMConstants.PASSWORD;
+        String registrationEndpoint = namInstanceURL + NAMConstants.TOKEN_ENDPOINT;
         String scope = null;
         if (info != null) {
             scope = (String) info.getParameter(NAMConstants.SCOPE);
@@ -886,33 +894,39 @@ public class NamOauthClient extends AbstractKeyManager {
 
         if (StringUtils.isEmpty(username)) {
             handleException(String.format("Mandotary parameter %s is missing in configuration.",
-                    NAMConstants.USERNAME));
+                    NAMConstants.CONFIG_USERNAME));
         }
+        params.add(new BasicNameValuePair(NAMConstants.USERNAME, username));
 
         if (StringUtils.isEmpty(password)) {
             handleException(String.format("Mandotary parameter %s is missing in configuration.",
-                    NAMConstants.PASSWORD));
+                    NAMConstants.CONFIG_PASSWORD));
         }
+        params.add(new BasicNameValuePair(NAMConstants.PASSWORD, password));
 
         if (StringUtils.isEmpty(clientId)) {
             handleException(String.format("Mandatory parameter %s is missing when getting a new access token",
-                    NAMConstants.CLIENT_ID));
+                    NAMConstants.CONFIG_CLIENT_ID));
         }
+        params.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
 
         if (StringUtils.isEmpty(clientSecret)) {
             handleException(String.format("Mandatory parameter %s is missing when getting a new access token",
-                    NAMConstants.CLIENT_SECRET));
+                    NAMConstants.CONFIG_CLIENT_SECRET));
         }
+        params.add(new BasicNameValuePair(NAMConstants.CLIENT_SECRET, clientSecret));
 
-        if (StringUtils.isEmpty(scope)) {
+        if (StringUtils.isEmpty(grantType)) {
             handleException(String.format("Mandatory parameter %s is missing when getting a new access token",
-                    NAMConstants.SCOPE));
+                    NAMConstants.GRANT_TYPE));
         }
+        params.add(new BasicNameValuePair(NAMConstants.GRANT_TYPE, grantType));
 
-        CloseableHttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPost httpPost = new HttpPost();
+       CloseableHttpClient httpClient = HttpClientBuilder.create().build();
+        HttpPost httpPost = new HttpPost(registrationEndpoint);
         try {
             httpPost.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATIN_FORM_URL_ENCODED);
+            httpPost.setEntity(new UrlEncodedFormEntity(params));
 
             HttpResponse response = httpClient.execute(httpPost);
             int statusCode = response.getStatusLine().getStatusCode();
@@ -927,6 +941,7 @@ public class NamOauthClient extends AbstractKeyManager {
 
             if (HttpStatus.SC_OK == statusCode) {
                 if (responseObject != null) {
+                    refreshToken = (String) responseObject.get(NAMConstants.REFRESH_TOKEN);
                     return (String) responseObject.get(NAMConstants.ACCESS_TOKEN);
                 } else {
                     handleException(String.format("Response body does not contain the %s when " +
@@ -985,5 +1000,9 @@ public class NamOauthClient extends AbstractKeyManager {
         } catch (UnsupportedEncodingException e) {
             throw new APIManagementException(NAMConstants.ERROR_ENCODING_METHOD_NOT_SUPPORTED, e);
         }
+    }
+
+    private String generateClientId() {
+        return UUID.randomUUID().toString();
     }
 }
