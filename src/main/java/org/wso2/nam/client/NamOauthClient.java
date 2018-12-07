@@ -90,7 +90,8 @@ public class NamOauthClient extends AbstractKeyManager {
         updateAccessToken(oAuthApplicationInfo);
 
         String[] scope = (String[]) ((String) oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_SCOPE)).split(",");
-        Object tokenGrantType = oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_GRANT_TYPE);
+        Object tokenGrantType = oAuthApplicationInfo.getParameter(NAMConstants.INFO_TOKEN_INFO);
+        String tokenType = oAuthApplicationInfo.getTokenType();
 
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT;
@@ -125,8 +126,9 @@ public class NamOauthClient extends AbstractKeyManager {
                         oAuthApplicationInfo.addParameter(NAMConstants.TOKEN_SCOPE, scope);
                     }
                     if (tokenGrantType != null) {
-                        oAuthApplicationInfo.addParameter(NAMConstants.TOKEN_GRANT_TYPE, tokenGrantType);
+                        oAuthApplicationInfo.addParameter(NAMConstants.INFO_TOKEN_GRANT_TYPE, tokenGrantType);
                     }
+                    oAuthApplicationInfo.setTokenType(tokenType);
                     return oAuthApplicationInfo;
                 }
             } else {
@@ -355,6 +357,7 @@ public class NamOauthClient extends AbstractKeyManager {
 
         parameters.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
         parameters.add(new BasicNameValuePair(NAMConstants.CLIENT_SECRET, clientSecret));
+
 
         JSONObject responseJSON = getAccessTokenWithClientCredentials(clientId, parameters);
         if (responseJSON != null) {
@@ -593,11 +596,14 @@ public class NamOauthClient extends AbstractKeyManager {
             appInfo.addParameter(NAMConstants.REDIRECT_URIS, redirectUris);
         }
 
-        if (response.get(NAMConstants.GRANT_TYPES) != null) {
-            appInfo.addParameter(NAMConstants.GRANT_TYPES, response.get(NAMConstants.GRANT_TYPES));
+        JSONArray grantTypes = (JSONArray) response.get(NAMConstants.GRANT_TYPES);
+        if (response != null) {
+            StringBuilder types = new StringBuilder();
+            for (Object type : grantTypes) {
+                types.append(type).append(" ");
+            }
+            appInfo.addParameter(NAMConstants.GRANT_TYPES, types.toString());
         }
-
-
         return appInfo;
     }
 
@@ -869,6 +875,7 @@ public class NamOauthClient extends AbstractKeyManager {
             return tokenInfo;
         }
 
+        tokenInfo.setTokenValid(true);
         tokenInfo.setAccessToken((String) responseJSON.get(NAMConstants.ACCESS_TOKEN));
         tokenInfo.setValidityPeriod(expireTime * 1000);
 

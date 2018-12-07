@@ -60,7 +60,6 @@ public class NAMConstants {
     public static final String REFRESH_TOKEN = "refresh_token";
     public static final String CLIENT_CREDENTIALS = "client_credentials";
     public static final String  TOKEN_SCOPE = "tokenScope";
-    public static final String TOKEN_GRANT_TYPE = "tokenGrantType";
     public static final String USER_ID = "user_id";
     public static final String ISSUER = "issuer";
     public static final String TOKEN_ID = "token_id";
@@ -70,6 +69,10 @@ public class NAMConstants {
     public static final String CONFIG_USERNAME = "Username";
     public static final String CONFIG_PASSWORD = "Password";
     public static final String CONFIG_NAM_INSTANCE_URL = "ServerURL";
+
+    public static final String INFO_TOKEN_INFO = "tokenInfo";
+    public static final String INFO_TOKEN_GRANT_TYPE = "tokenGrantType";
+
 
     public static final String NULL_STRING = "null";
 
