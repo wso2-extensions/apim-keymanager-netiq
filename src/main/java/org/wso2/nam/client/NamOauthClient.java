@@ -132,15 +132,17 @@ public class NamOauthClient extends AbstractKeyManager {
                     return oAuthApplicationInfo;
                 }
             } else {
-                handleException(String.format("Error occured while registering the new client in NetIQ Access Manager" +
-                        ".Response : %s", responseObject.toJSONString()));
+                handleException(String.format("Error occured while registering the new oAuth applciation in NetIQ " +
+                        "access manager. Response : %s. Received staus code : ", responseObject.toJSONString(),
+                        statusCode));
             }
 
         } catch (UnsupportedEncodingException e) {
-            handleException(String.format("Unsupported encoding method has been used when creating a client " +
+            handleException(String.format("Unsupported encoding method has been used when creating a new oAuth " +
                     "application for %s.", oAuthApplicationInfo.getClientId()), e);
         } catch (ClientProtocolException e) {
-            throw new APIManagementException(NAMConstants.ERROR_CLIENT_PROTOCOL, e);
+            throw new APIManagementException(String.format("Error occured while sending an http reqeust for creating " +
+                    "a new oAuth application for %s",oAuthApplicationInfo.getClientId()), e);
         } catch (IOException e) {
             handleException(String.format("Error occurred while reading response body when creating a client " +
                     "application for %s.", oAuthApplicationInfo.getClientId()), e);
@@ -157,8 +159,8 @@ public class NamOauthClient extends AbstractKeyManager {
         // We have to send the client id with the update request.
         String clientId = oAuthApplicationInfo.getClientId();
         if (log.isDebugEnabled()) {
-            log.debug(String.format("Updating an OAuth client in NetIQ authorization server for the consumer Key %s",
-                    clientId));
+            log.debug(String.format("Updating oAuth application in NetIQ authorization server for the consumer " +
+                    "key %s.", clientId));
         }
         // Getting Client Instance Url and API Key from Config.
         updateAccessToken(oAuthApplicationInfo);
@@ -178,10 +180,6 @@ public class NamOauthClient extends AbstractKeyManager {
             httpPut.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATION_JSON);
             // Setting Authorization Header, with API Key.
             httpPut.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
-            if (log.isDebugEnabled()) {
-                log.debug(String.format("Invoking HTTP request to update client in NetIQ Access Manager for " +
-                        "consumer key %s", clientId));
-            }
             HttpResponse response = httpClient.execute(httpPut);
             int statusCode = response.getStatusLine().getStatusCode();
             HttpEntity entity = response.getEntity();
@@ -195,11 +193,13 @@ public class NamOauthClient extends AbstractKeyManager {
                 if (responseObject != null) {
                     return createOAuthAppInfoFromResponse(responseObject, clientId);
                 } else {
-                    handleException("ResponseObject is empty. Can not return oAuthApplicationInfo.");
+                    handleException("Response body is empty for the update applicatoin request. Hence can not return " +
+                            "oAuthApplicationInfo.");
                 }
             } else {
-                handleException(String.format("Error occurred when updating the client with consumer key %s" +
-                        " : Response: %s", clientId, responseObject.toJSONString()));
+                handleException(String.format("Error occurred when updating the client with client id %s." +
+                        " Response: %s. Received status code : %s.",
+                        clientId, responseObject.toJSONString(), statusCode));
             }
         } catch (UnsupportedEncodingException e) {
             handleException(String.format("Unsupported encoding method has been used while updating client " +
@@ -219,14 +219,13 @@ public class NamOauthClient extends AbstractKeyManager {
     @Override
     public void deleteApplication(String clientId) throws APIManagementException {
         if (log.isDebugEnabled()) {
-            log.debug(String.format("Deleting an OAuth client in NetIQ authorization server for the Consumer Key: %s",
-                    clientId));
+            log.debug(String.format("Deleting the OAuth application from NetIQ authorization server for the client id" +
+                    " %s.", clientId));
         }
         updateAccessToken(null);
         // Getting Client Instance Url and API Key from Config.
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
-        String deleteEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT + "/"
-                + clientId;
+        String deleteEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT + "/" + clientId;
 
         HttpDelete httpDelete = new HttpDelete(deleteEndpoint);
         // TODO : how should these requests be authenticated
@@ -237,28 +236,29 @@ public class NamOauthClient extends AbstractKeyManager {
             int statusCode = response.getStatusLine().getStatusCode();
             if (statusCode == HttpStatus.SC_NO_CONTENT) {
                 if (log.isDebugEnabled()) {
-                    log.debug(String.format("OAuth Client for the Consumer Key %s has been successfully deleted",
+                    log.debug(String.format("OAuth applicaiton for the client id %s has been successfully deleted.",
                             clientId));
                 }
             } else {
                 HttpEntity entity = response.getEntity();
                 if (entity == null) {
                     handleException(String.format("Could not read http entity for response %s while deleting " +
-                            "client : %s ", response, clientId));
+                            "application for client id %s ", response, clientId));
                 }
                 reader = new BufferedReader(new InputStreamReader(entity.getContent(),
                         NAMConstants.UTF_8));
                 JSONObject responseObject = getParsedObjectByReader(reader);
-                handleException(String.format("Problem occurred while deleting client for the Consumer Key %s." +
-                        " Response : %s", clientId, responseObject.toJSONString()));
+                handleException(String.format("Problem occurred while deleting OAuth application for the client id" +
+                        " %s. Response : %s. Reveived status code : ",
+                        clientId, responseObject.toJSONString(), statusCode));
             }
 
         } catch (IOException e) {
-            handleException(String.format("Error occurred when reading response body while deleting client %s.",
-                    clientId), e);
+            handleException(String.format("Error occurred when reading response body while deleting OAuth application" +
+                            " for %s.", clientId), e);
         } catch (ParseException e) {
-            handleException(String.format("Error occurred when parsing response while deleting client %s.",
-                    clientId), e);
+            handleException(String.format("Error occurred when parsing response while deleting OAuth application" +
+                    " for %s.", clientId), e);
         } finally {
             closeResources(reader, httpClient);
         }
@@ -267,15 +267,15 @@ public class NamOauthClient extends AbstractKeyManager {
     @Override
     public OAuthApplicationInfo retrieveApplication(String clientId) throws APIManagementException {
         if (log.isDebugEnabled()) {
-            log.debug(String.format("Retrieving an OAuth client from NetIQ authorization server for the consumer key" +
-                    " %s", clientId));
+            log.debug(String.format("Retrieving the OAuth applicatoin from NetIQ authorization server for the " +
+                    "client id %s.", clientId));
         }
 
         updateAccessToken(null);
         JSONObject responseJSON = getApplication(clientId);
 
         if (responseJSON == null) {
-            handleException("Failed to retrieve application for client id " + clientId);
+            handleException(String.format("Failed to retrieve application for client id %s.", clientId));
         }
 
         return createOAuthAppInfoFromResponse(responseJSON, clientId);
@@ -289,10 +289,6 @@ public class NamOauthClient extends AbstractKeyManager {
         try {
             HttpGet request = new HttpGet(registrationEndpoint);
             request.addHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
-            if (log.isDebugEnabled()) {
-                log.debug(String.format("Invoking HTTP request to get the client details for the consumer key %s",
-                        clientId));
-            }
             HttpResponse response = httpClient.execute(request);
             int statusCode = response.getStatusLine().getStatusCode();
             HttpEntity entity = response.getEntity();
@@ -308,14 +304,14 @@ public class NamOauthClient extends AbstractKeyManager {
                 responseJSON = parser.parse(reader);
                 return (JSONObject) responseJSON;
             } else {
-                handleException(String.format("Error occurred while retrieving client application for consumer " +
+                handleException(String.format("Error occurred while retrieving oAuth application for consumer " +
                         "key %s.", clientId));
             }
         } catch (ParseException e) {
-            handleException(String.format("Error occurred while parsing response when retrieving client application " +
+            handleException(String.format("Error occurred while parsing response when retrieving oAuth application " +
                     "for %s.", clientId), e);
         } catch (IOException e) {
-            handleException(String.format("Error while reading response body when retrieving client application of %s.",
+            handleException(String.format("Error while reading response body when retrieving oAuth application of %s.",
                     clientId), e);
         } finally {
             closeResources(reader, httpClient);
@@ -327,20 +323,24 @@ public class NamOauthClient extends AbstractKeyManager {
     @Override
     public AccessTokenInfo getNewApplicationAccessToken(AccessTokenRequest accessTokenRequest)
             throws APIManagementException {
+        String clientId = accessTokenRequest.getClientId();
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Retrieving the OAuth applicatoin from NetIQ authorization server for the " +
+                    "client id %s.", clientId));
+        }
         AccessTokenInfo tokenInfo = new AccessTokenInfo();
         String grantType = accessTokenRequest.getGrantType();
-        String clientId = accessTokenRequest.getClientId();
 
         String clientSecret = (String) getApplication(clientId).get(NAMConstants.CLIENT_SECRET);
 
         revokeAccessToken(clientId, clientSecret, refreshToken);
         if (StringUtils.isEmpty(clientId)) {
             handleException("Mandatory parameter " + NAMConstants.CLIENT_SECRET + " is missing while requesting " +
-                    "for a new application token.");
+                    "for a new application acces token.");
         }
 
         if (log.isDebugEnabled()) {
-            log.debug(String.format("Get new client access token from authorization server for the consumer key %s.",
+            log.debug(String.format("Getting new client access token from authorization server for the client id %s.",
                     clientId));
         }
 
@@ -363,7 +363,7 @@ public class NamOauthClient extends AbstractKeyManager {
         if (responseJSON != null) {
             updateTokenInfo(tokenInfo, responseJSON);
             if (log.isDebugEnabled()) {
-                log.debug(String.format("OAuth token has been successfully validated for the consumer key %s.",
+                log.debug(String.format("OAuth token has been successfully validated for the client id %s.",
                         clientId));
             }
             return tokenInfo;
@@ -371,7 +371,7 @@ public class NamOauthClient extends AbstractKeyManager {
             tokenInfo.setTokenValid(false);
             tokenInfo.setErrorcode(APIConstants.KeyValidationStatus.API_AUTH_INVALID_CREDENTIALS);
             if (log.isDebugEnabled()) {
-                log.debug(String.format("OAuth token validation failed for the consumer key %s.", clientId));
+                log.debug(String.format("OAuth token validation failed for the client id %s.", clientId));
             }
         }
         return tokenInfo;
@@ -506,6 +506,9 @@ public class NamOauthClient extends AbstractKeyManager {
     }
 
     private void updateAccessToken(OAuthApplicationInfo info) throws APIManagementException {
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Validating and updating the existing access token."));
+        }
         if (accessToken == null || doValidateAccessTokenRequest(accessToken) == null) {
             String token = getAccessTokenWithPassword(info);
             if (StringUtils.isEmpty(token)) {
@@ -525,8 +528,7 @@ public class NamOauthClient extends AbstractKeyManager {
 
     private JSONObject doValidateAccessTokenRequest(String accessToken) throws APIManagementException {
         if (log.isDebugEnabled()) {
-            log.debug(String.format("Getting access token metadata from authorization server. Access token %s",
-                    accessToken));
+            log.debug(String.format("Getting access token metadata from the authorization server."));
         }
         String tokenInfoEndpoint = namInstanceURL + NAMConstants.TOKEN_INFO_ENDPOINT;
         AccessTokenInfo tokenInfo = new AccessTokenInfo();
@@ -563,6 +565,10 @@ public class NamOauthClient extends AbstractKeyManager {
     }
 
     private OAuthApplicationInfo createOAuthAppInfoFromResponse(JSONObject response, String clientId) throws APIManagementException {
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Retrieving the OAuth applicatoin from NetIQ authorization server for the " +
+                    "client id %s.", clientId));
+        }
         OAuthApplicationInfo appInfo = new OAuthApplicationInfo();
 
         String clientName = (String) response.get(NAMConstants.CLIENT_NAME);
@@ -614,8 +620,11 @@ public class NamOauthClient extends AbstractKeyManager {
 
     private UrlEncodedFormEntity createPayloadFromOAuthAppInfo(OAuthApplicationInfo appInfo,
                                                                       List<NameValuePair> params) throws APIManagementException {
-
         String clientId = appInfo.getClientId();
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Creating payload of OAuth application creation request for client id %s.", clientId));
+        }
+
         String clientName = appInfo.getClientName();
         if (StringUtils.isEmpty(clientName)) {
             handleException("Mandatory parameter " + NAMConstants.CLIENT_ID + " is missing.");
@@ -737,7 +746,7 @@ public class NamOauthClient extends AbstractKeyManager {
     private void revokeAccessToken(String clientId, String clientSecret, String refreshToken)
             throws APIManagementException {
         if (log.isDebugEnabled()) {
-            log.debug(String.format("Revoke access token from authorization Server."));
+            log.debug(String.format("Revoking the application access token for client id %s.", clientId));
         }
 
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
@@ -757,19 +766,17 @@ public class NamOauthClient extends AbstractKeyManager {
             String encodedCredentials = getEncodedCredentials(clientId, clientSecret);
             httpPost.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.AUTHENTICATION_BASIC + encodedCredentials);
 
-            if (log.isDebugEnabled()) {
-                log.debug("Invoking HTTP request to revoke access token.");
-            }
             HttpResponse response = httpClient.execute(httpPost);
             // TODO: 16/11/18 Handle response (error code)
             int statusCode = response.getStatusLine().getStatusCode();
             if (statusCode == HttpStatus.SC_OK) {
                 if (log.isDebugEnabled()) {
-                    log.debug("OAuth accessToken has been successfully revoked.");
+                    log.debug(String.format("Application accessToken for client id %s has been successfully " +
+                            "revoked.", clientId));
                 }
             } else {
-                handleException(String.format("Problem occurred while revoking the access token for consumer key %s.",
-                        clientId));
+                handleException(String.format("Problem occurred while revoking the access token for client id %s. " +
+                                "Status code %d was received for the revoke request.", clientId, statusCode));
             }
         } catch (UnsupportedEncodingException e) {
             handleException(String.format("Unsupported encoding has been used while revoking token for %s.",
@@ -778,16 +785,10 @@ public class NamOauthClient extends AbstractKeyManager {
             handleException(String.format("HTTP error has occurred when sending request to OAuth Provider while " +
                     "revoking token for %s.", clientId), e);
         } catch (IOException e) {
-            handleException(String.format("Error when reading response body while revoking token for %s.",
+            handleException(String.format("Error occured when reading response body while revoking token for %s.",
                     clientId), e);
         } finally {
-            try {
-                if (httpClient != null) {
-                    httpClient.close();
-                }
-            } catch (IOException e) {
-                log.error(e);
-            }
+            closeResources(null, httpClient);
         }
     }
 
@@ -815,6 +816,10 @@ public class NamOauthClient extends AbstractKeyManager {
 
     private JSONObject getAccessTokenWithClientCredentials(String clientId, List<NameValuePair> parameters)
             throws APIManagementException {
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Getting a new access token using client credentials flow."));
+        }
+
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         BufferedReader reader = null;
 
@@ -822,10 +827,6 @@ public class NamOauthClient extends AbstractKeyManager {
             HttpPost httpPost = new HttpPost(namInstanceURL + NAMConstants.TOKEN_ENDPOINT);
             httpPost.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATIN_FORM_URL_ENCODED);
             httpPost.setEntity(new UrlEncodedFormEntity(parameters));
-
-            if (log.isDebugEnabled()) {
-                log.debug("Invoking HTTP request to get the access token for client " + clientId);
-            }
             HttpResponse response = httpClient.execute(httpPost);
             int statusCode = response.getStatusLine().getStatusCode();
             HttpEntity entity = response.getEntity();
@@ -845,8 +846,8 @@ public class NamOauthClient extends AbstractKeyManager {
                     return responseJSON;
                 }
             } else {
-                log.error(String.format("Failed to get accessToken for Consumer Key %s. Response: %s", clientId,
-                        responseJSON.toJSONString()));
+                log.error(String.format("Failed to get accessToken for client id %s. Response: %s. Received status " +
+                                "code : ", clientId, responseJSON.toJSONString(), statusCode));
             }
         } catch (UnsupportedEncodingException e) {
             handleException(String.format("Error occurred when encoding while getting a new access token for %s.",
@@ -887,6 +888,10 @@ public class NamOauthClient extends AbstractKeyManager {
     }
 
     private String getAccessTokenWithPassword(OAuthApplicationInfo info) throws APIManagementException {
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Getting a new access token using resource owner flow."));
+        }
+
         List<NameValuePair> params = new ArrayList<NameValuePair>();
         String username = configuration.getParameter(NAMConstants.CONFIG_USERNAME);
         String password = configuration.getParameter(NAMConstants.CONFIG_PASSWORD);
@@ -957,7 +962,8 @@ public class NamOauthClient extends AbstractKeyManager {
                 }
             } else {
                 handleException(String.format("Error occured while getting a new access token for %s." +
-                        "Response : %s", clientId, responseObject.toJSONString()));
+                        "Response : %s. Received status code : %s",
+                        clientId, responseObject.toJSONString(), statusCode));
             }
 
         } catch (UnsupportedEncodingException e) {
