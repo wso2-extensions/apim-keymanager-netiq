@@ -63,6 +63,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * This class contains the key manager implementation for WSO2 APIM considering Net IQ as the access manager.
+ */
 public class NamOauthClient extends AbstractKeyManager {
     private static final Log log = LogFactory.getLog(NamOauthClient.class);
     private KeyManagerConfiguration configuration;
@@ -143,7 +146,7 @@ public class NamOauthClient extends AbstractKeyManager {
                     "application for %s.", oAuthApplicationInfo.getClientId()), e);
         } catch (ClientProtocolException e) {
             throw new APIManagementException(String.format("Error occured while sending an http reqeust for creating " +
-                    "a new oAuth application for %s",oAuthApplicationInfo.getClientId()), e);
+                    "a new oAuth application for %s", oAuthApplicationInfo.getClientId()), e);
         } catch (IOException e) {
             handleException(String.format("Error occurred while reading response body when creating a client " +
                     "application for %s.", oAuthApplicationInfo.getClientId()), e);
@@ -606,7 +609,8 @@ public class NamOauthClient extends AbstractKeyManager {
      * @return an OAuthApplicationInfo instance which needs to be returned after an oAuth applciation is created
      * @throws APIManagementException
      */
-    private OAuthApplicationInfo createOAuthAppInfoFromResponse(JSONObject response, String clientId) throws APIManagementException {
+    private OAuthApplicationInfo createOAuthAppInfoFromResponse(JSONObject response, String clientId)
+            throws APIManagementException {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Retrieving the OAuth applicatoin from NetIQ authorization server for the " +
                     "client id %s.", clientId));
@@ -668,10 +672,11 @@ public class NamOauthClient extends AbstractKeyManager {
      * @throws APIManagementException
      */
     private UrlEncodedFormEntity createPayloadFromOAuthAppInfo(OAuthApplicationInfo appInfo,
-                                                                      List<NameValuePair> params) throws APIManagementException {
+                                                  List<NameValuePair> params) throws APIManagementException {
         String clientId = appInfo.getClientId();
         if (log.isDebugEnabled()) {
-            log.debug(String.format("Creating payload of OAuth application creation request for client id %s.", clientId));
+            log.debug(String.format("Creating payload of OAuth application creation request for client id %s.",
+                    clientId));
         }
 
         String clientName = appInfo.getClientName();
@@ -716,7 +721,8 @@ public class NamOauthClient extends AbstractKeyManager {
 
             String alwaysIssueNewRefreshToken = (String) jsonObject.get(NAMConstants.ALWAYS_ISSUE_NEW_REFRESH_TOKEN);
             if (!StringUtils.isEmpty(alwaysIssueNewRefreshToken)) {
-                params.add(new BasicNameValuePair(NAMConstants.ALWAYS_ISSUE_NEW_REFRESH_TOKEN, alwaysIssueNewRefreshToken));
+                params.add(new BasicNameValuePair(NAMConstants.ALWAYS_ISSUE_NEW_REFRESH_TOKEN,
+                        alwaysIssueNewRefreshToken));
             }
 
             String authzCodeTTL = (String) jsonObject.get(NAMConstants.AUTH_CODE_TTL);

@@ -1,5 +1,8 @@
 package org.wso2.nam.client;
 
+/**
+ * Constants for NetIQ key manager implementation.
+ */
 public class NAMConstants {
     public static final String UTF_8 = "UTF-8";
     public static final String CLIENT_ENDPOINT = "/nidp/oauth/nam/clients";
@@ -14,7 +17,7 @@ public class NAMConstants {
     public static final String PASSWORD = "password";
     public static final String USERNAME = "username";
     public static final String BEARER = "Bearer ";
-    public static final String AUDIENCE ="audience";
+    public static final String AUDIENCE = "audience";
 
     public static final String CLIENT_ID = "client_id";
     public static final String CLIENT_NAME = "client_name";
