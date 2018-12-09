@@ -281,45 +281,6 @@ public class NamOauthClient extends AbstractKeyManager {
         return createOAuthAppInfoFromResponse(responseJSON, clientId);
     }
 
-    private JSONObject getApplication(String clientId) throws APIManagementException {
-        CloseableHttpClient httpClient = HttpClientBuilder.create().build();
-        String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT;
-
-        BufferedReader reader = null;
-        try {
-            HttpGet request = new HttpGet(registrationEndpoint);
-            request.addHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
-            HttpResponse response = httpClient.execute(request);
-            int statusCode = response.getStatusLine().getStatusCode();
-            HttpEntity entity = response.getEntity();
-            if (entity == null) {
-                handleException(String.format(NAMConstants.STRING_FORMAT,
-                        NAMConstants.ERROR_COULD_NOT_READ_HTTP_ENTITY, response));
-            }
-            reader = new BufferedReader(new InputStreamReader(entity.getContent(), NAMConstants.UTF_8));
-            Object responseJSON;
-
-            if (statusCode == HttpStatus.SC_OK) {
-                JSONParser parser = new JSONParser();
-                responseJSON = parser.parse(reader);
-                return (JSONObject) responseJSON;
-            } else {
-                handleException(String.format("Error occurred while retrieving oAuth application for consumer " +
-                        "key %s.", clientId));
-            }
-        } catch (ParseException e) {
-            handleException(String.format("Error occurred while parsing response when retrieving oAuth application " +
-                    "for %s.", clientId), e);
-        } catch (IOException e) {
-            handleException(String.format("Error while reading response body when retrieving oAuth application of %s.",
-                    clientId), e);
-        } finally {
-            closeResources(reader, httpClient);
-        }
-        return null;
-    }
-
-
     @Override
     public AccessTokenInfo getNewApplicationAccessToken(AccessTokenRequest accessTokenRequest)
             throws APIManagementException {
@@ -492,6 +453,58 @@ public class NamOauthClient extends AbstractKeyManager {
         return null;
     }
 
+    /**
+     * This method executes the retrieve oAuth application request.
+     *
+     * @param clientId client id assosiated with the application which needs to be retrieved
+     * @return response body of retrieve application request
+     * @throws APIManagementException
+     */
+    private JSONObject getApplication(String clientId) throws APIManagementException {
+        CloseableHttpClient httpClient = HttpClientBuilder.create().build();
+        String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT;
+
+        BufferedReader reader = null;
+        try {
+            HttpGet request = new HttpGet(registrationEndpoint);
+            request.addHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
+            HttpResponse response = httpClient.execute(request);
+            int statusCode = response.getStatusLine().getStatusCode();
+            HttpEntity entity = response.getEntity();
+            if (entity == null) {
+                handleException(String.format(NAMConstants.STRING_FORMAT,
+                        NAMConstants.ERROR_COULD_NOT_READ_HTTP_ENTITY, response));
+            }
+            reader = new BufferedReader(new InputStreamReader(entity.getContent(), NAMConstants.UTF_8));
+            Object responseJSON;
+
+            if (statusCode == HttpStatus.SC_OK) {
+                JSONParser parser = new JSONParser();
+                responseJSON = parser.parse(reader);
+                return (JSONObject) responseJSON;
+            } else {
+                handleException(String.format("Error occurred while retrieving oAuth application for consumer " +
+                        "key %s.", clientId));
+            }
+        } catch (ParseException e) {
+            handleException(String.format("Error occurred while parsing response when retrieving oAuth application " +
+                    "for %s.", clientId), e);
+        } catch (IOException e) {
+            handleException(String.format("Error while reading response body when retrieving oAuth application of %s.",
+                    clientId), e);
+        } finally {
+            closeResources(reader, httpClient);
+        }
+        return null;
+    }
+
+    /**
+     * This method retrieves the oAuth application for the given client id and extracts its client sercret.
+     *
+     * @param clientId client id which associated with the applicatiion of which the client secret is needed
+     * @return client sercret of the application that has the provided client id
+     * @throws APIManagementException
+     */
     private String getClientSecret(String clientId) throws APIManagementException {
         JSONObject application = getApplication(clientId);
         if (application == null) {
@@ -505,6 +518,13 @@ public class NamOauthClient extends AbstractKeyManager {
         return clientSecret;
     }
 
+    /**
+     * This method initiates validating the access token and updating it if necessary
+     *
+     * @param info OAuthApplicationInfo of the application, which is related to the operations that require
+     *             access token
+     * @throws APIManagementException
+     */
     private void updateAccessToken(OAuthApplicationInfo info) throws APIManagementException {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Validating and updating the existing access token."));
@@ -518,6 +538,12 @@ public class NamOauthClient extends AbstractKeyManager {
         }
     }
 
+    /**
+     * This method init
+     * @param accessToken
+     * @return
+     * @throws APIManagementException
+     */
     private boolean isAccessTokenValid(String accessToken) throws APIManagementException {
         JSONObject response = doValidateAccessTokenRequest(accessToken);
         if (response != null) {
@@ -526,6 +552,13 @@ public class NamOauthClient extends AbstractKeyManager {
         return false;
     }
 
+    /**
+     * This method validates the given access token by calling /tokenInfo endpoint of NetIQ Access Manager.
+     *
+     * @param accessToken Access token which needs to be validated.
+     * @return response body for the validation request as a JSONObject
+     * @throws APIManagementException
+     */
     private JSONObject doValidateAccessTokenRequest(String accessToken) throws APIManagementException {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Getting access token metadata from the authorization server."));
@@ -564,6 +597,15 @@ public class NamOauthClient extends AbstractKeyManager {
         return null;
     }
 
+    /**
+     * This method generates and populates an OAuthApplicationInfo object from the response of oAuth application
+     * creation request.
+     *
+     * @param response Response received for the application creation request
+     * @param clientId Cliend id of the application which was created
+     * @return an OAuthApplicationInfo instance which needs to be returned after an oAuth applciation is created
+     * @throws APIManagementException
+     */
     private OAuthApplicationInfo createOAuthAppInfoFromResponse(JSONObject response, String clientId) throws APIManagementException {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Retrieving the OAuth applicatoin from NetIQ authorization server for the " +
@@ -613,11 +655,25 @@ public class NamOauthClient extends AbstractKeyManager {
         return appInfo;
     }
 
+    /**
+     * This method is used to create and throw an APIManagerException for a given error message
+     * @param msg error message which needs to be included in the API Manager Exception
+     * @throws APIManagementException
+     */
     private static void handleException(String msg) throws APIManagementException {
         log.error(msg);
         throw new APIManagementException(msg);
     }
 
+    /**
+     * This method generates the body of the applicatoin creation request for a particular oAuth
+     * application, in UrlEncoded format.
+     *
+     * @param appInfo oAuthApplicationInfo of the application that is going to be created
+     * @param params a list of name-value pairs which should be included in the reuqest body
+     * @return a UrlEncodedFormEntity which needs to be included as the application creation request
+     * @throws APIManagementException
+     */
     private UrlEncodedFormEntity createPayloadFromOAuthAppInfo(OAuthApplicationInfo appInfo,
                                                                       List<NameValuePair> params) throws APIManagementException {
         String clientId = appInfo.getClientId();
@@ -743,6 +799,13 @@ public class NamOauthClient extends AbstractKeyManager {
         }
     }
 
+    /**
+     * This method calls the revoke endpoint of the NetIQ access maanger to revoke a given token.
+     *
+     * @param clientSecret client sercret which needs to authenticate the request
+     * @param refreshToken refresh token for the revoke operation
+     * @throws APIManagementException
+     */
     private void revokeAccessToken(String clientId, String clientSecret, String refreshToken)
             throws APIManagementException {
         if (log.isDebugEnabled()) {
@@ -792,6 +855,14 @@ public class NamOauthClient extends AbstractKeyManager {
         }
     }
 
+    /**
+     * This method is used to extract the content of a response for an http request, as a JSONObject.
+     *
+     * @param reader Reader that reads the input stream of the response
+     * @return an JSONObject which is generated from the content of the response
+     * @throws ParseException
+     * @throws IOException
+     */
     private JSONObject getParsedObjectByReader(BufferedReader reader) throws ParseException, IOException {
         JSONObject parsedObject = null;
         JSONParser parser = new JSONParser();
@@ -801,6 +872,13 @@ public class NamOauthClient extends AbstractKeyManager {
         return parsedObject;
     }
 
+    /**
+     * This medthod is used to close the readers and http clients which are used to call NetIQ access manager
+     * endpoints and to read the responses.
+     *
+     * @param reader BufferedReader instance which needs to be closed
+     * @param httpClient HttpClient instance which needs to be closed
+     */
     private void closeResources(BufferedReader reader, CloseableHttpClient httpClient) {
         if (reader != null) {
             IOUtils.closeQuietly(reader);
@@ -814,6 +892,16 @@ public class NamOauthClient extends AbstractKeyManager {
         }
     }
 
+    /**
+     * This method is used to get an access token using client credentials flow.
+     * (i.e. using client id and client secret)
+     *
+     * @param clientId client id of the client for which access token is needed
+     * @param parameters name-value pairs that needs to be included in the token request body
+     * @return an JSONObject instance which is generated from the response of token request.
+     *         This should contain the access token for the given.
+     * @throws APIManagementException
+     */
     private JSONObject getAccessTokenWithClientCredentials(String clientId, List<NameValuePair> parameters)
             throws APIManagementException {
         if (log.isDebugEnabled()) {
@@ -864,6 +952,14 @@ public class NamOauthClient extends AbstractKeyManager {
         return null;
     }
 
+    /**
+     * This method is used to update a given AccessTokenInfo instance with the values received from a reuqest sent to
+     * the token end point of NetIQ Access Manager.
+     *
+     * @param tokenInfo AccessTokenInfo instance that needs to be updated from the response
+     * @param responseJSON JSSONObject instance generated from the response of a token request
+     * @return Updated AccessTokenInfo instance
+     */
     private AccessTokenInfo updateTokenInfo(AccessTokenInfo tokenInfo, JSONObject responseJSON) {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Update the access token info with JSON response: %s, after getting " +
@@ -887,6 +983,17 @@ public class NamOauthClient extends AbstractKeyManager {
         return tokenInfo;
     }
 
+    /**
+     * This method is used to get an access token using resource owner flow.
+     * (i.e. using username and password)
+     * This will be used only at the begining to get the access token. After getting the access token for the first
+     * time, token endpoint will be called using client id and secret. (using client credentials flow)
+     *
+     * @param info an OAuthApplicationInfo instance which cotains the info related to the oAuth applicaiton for which
+     *            the access token should be generated.
+     * @return access token received from the NetIQ access manager for the given user credentials.
+     * @throws APIManagementException
+     */
     private String getAccessTokenWithPassword(OAuthApplicationInfo info) throws APIManagementException {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Getting a new access token using resource owner flow."));
@@ -981,6 +1088,12 @@ public class NamOauthClient extends AbstractKeyManager {
         return null;
     }
 
+    /**
+     * This method is used to generate a string from a string array. Each element of the array is seperated by a space.
+     *
+     * @param stringArray an array of string which needs to be convered to a string
+     * @return generated string, null if array is null
+     */
     private String convertToString(String[] stringArray) {
         if (stringArray != null) {
             StringBuilder sb = new StringBuilder();
@@ -991,10 +1104,15 @@ public class NamOauthClient extends AbstractKeyManager {
             }
             return sb.toString().trim();
         }
-
         return null;
     }
 
+    /**
+     * This method is used to generate a string array from the content of a json array.
+     *
+     * @param jsonArray Json array which needs to be converted to a string array
+     * @return Array of string which is generated from the content of given json array
+     */
     private String[] generateStringArray(JSONArray jsonArray) {
         if (jsonArray != null) {
             int i = 0;
@@ -1006,6 +1124,14 @@ public class NamOauthClient extends AbstractKeyManager {
         return null;
     }
 
+    /**
+     * This method is used to encode client credentials in Base64 format.
+     *
+     * @param clientId client id which needs to be included in the auth header of the request
+     * @param clientSecret client secret which needs to be included in the auth header of the request
+     * @return encoded string which can be used in the auth header in the http request
+     * @throws APIManagementException
+     */
     private static String getEncodedCredentials(String clientId, String clientSecret) throws APIManagementException {
         try {
             return Base64.getEncoder().encodeToString((clientId + ":" + clientSecret)
@@ -1015,6 +1141,10 @@ public class NamOauthClient extends AbstractKeyManager {
         }
     }
 
+    /**
+     * This method is used to generate a UUID which can be assigned as client id of a client
+     * @return generated UUID
+     */
     private String generateClientId() {
         return UUID.randomUUID().toString();
     }
