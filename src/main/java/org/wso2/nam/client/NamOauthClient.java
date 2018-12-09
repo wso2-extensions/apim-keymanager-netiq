@@ -89,14 +89,15 @@ public class NamOauthClient extends AbstractKeyManager {
 
         updateAccessToken(oAuthApplicationInfo);
 
-        String[] scope = (String[]) ((String) oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_SCOPE)).split(",");
+        String[] scope = (String[]) ((String) oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_SCOPE))
+                .split(NAMConstants.INFO_SCOPE_SEPERATOR);
         Object tokenGrantType = oAuthApplicationInfo.getParameter(NAMConstants.INFO_TOKEN_INFO);
         String tokenType = oAuthApplicationInfo.getTokenType();
 
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT;
         List<NameValuePair> params = new ArrayList<NameValuePair>();
-        oAuthApplicationInfo.setClientId(generateClientId());
+        oAuthApplicationInfo.setClientId(UUID.randomUUID().toString());
         UrlEncodedFormEntity urlEncodedFormEntity = createPayloadFromOAuthAppInfo(oAuthApplicationInfo, params);
 
         HttpPost httpPost = new HttpPost(registrationEndpoint);
@@ -384,7 +385,6 @@ public class NamOauthClient extends AbstractKeyManager {
 
         tokenInfo.setConsumerKey(audience);
         tokenInfo.setEndUserName(userId);
-        // TODO: 29/11/18 check expiresIn vlaue is in secs or milisecs
         tokenInfo.setValidityPeriod(expriresIn * 1000);
         tokenInfo.setScope(generateStringArray(scope));
 
@@ -615,19 +615,12 @@ public class NamOauthClient extends AbstractKeyManager {
 
         String clientName = (String) response.get(NAMConstants.CLIENT_NAME);
         String clientSecret = (String) response.get(NAMConstants.CLIENT_SECRET);
-        //String refreshToken = (String) response.get(NAMConstants.REFRESH_TOKEN);
 
         if (StringUtils.isEmpty(clientId)) {
             handleException(String.format("Mandatory parameter %s is empty in the response %s.",
                     NAMConstants.CLIENT_ID, response.toJSONString()));
         }
         appInfo.setClientId(clientId);
-
-        /*if (StringUtils.isEmpty(refreshToken)) {
-            handleException(String.format("Mandatory parameter %s is empty in the response %s.",
-                    NAMConstants.REFRESH_TOKEN, response.toJSONString()));
-        }
-        appInfo.addParameter((String) response.get(NAMConstants.REFRESH_TOKEN), refreshToken);*/
 
         if (!StringUtils.isEmpty(clientName)) {
             appInfo.setClientName(clientName);
@@ -648,7 +641,7 @@ public class NamOauthClient extends AbstractKeyManager {
         if (response != null) {
             StringBuilder types = new StringBuilder();
             for (Object type : grantTypes) {
-                types.append(type).append(" ");
+                types.append(type).append(NAMConstants.NAM_GRANT_TYPE_SEPERATOR);
             }
             appInfo.addParameter(NAMConstants.GRANT_TYPES, types.toString());
         }
@@ -691,14 +684,13 @@ public class NamOauthClient extends AbstractKeyManager {
 
         String redirectionUri = appInfo.getCallBackURL();
         if (!StringUtils.isEmpty(redirectionUri)) {
-//            handleException("Mandatory parameter callback URL is missing.");
             params.add(new BasicNameValuePair(NAMConstants.REDIRECTION_URI, redirectionUri));
         }
 
         String grantTypes = (String) appInfo.getParameter(NAMConstants.GRANT_TYPES);
         if (grantTypes != null) {
             JSONArray jsonArray = new JSONArray();
-            Collections.addAll(jsonArray, grantTypes.split(","));
+            Collections.addAll(jsonArray, grantTypes.split(NAMConstants.INFO_GRANT_TYPE_SEPERATOR));
             params.add(new BasicNameValuePair(NAMConstants.GRANT_TYPES, jsonArray.toJSONString()));
         }
 
@@ -1100,7 +1092,7 @@ public class NamOauthClient extends AbstractKeyManager {
             List<String> strList = Arrays.asList(stringArray);
             for (String s : strList) {
                 sb.append(s);
-                sb.append(" ");
+                sb.append(NAMConstants.NAM_SCOPE_SEPERATOR);
             }
             return sb.toString().trim();
         }
@@ -1139,13 +1131,5 @@ public class NamOauthClient extends AbstractKeyManager {
         } catch (UnsupportedEncodingException e) {
             throw new APIManagementException(NAMConstants.ERROR_ENCODING_METHOD_NOT_SUPPORTED, e);
         }
-    }
-
-    /**
-     * This method is used to generate a UUID which can be assigned as client id of a client
-     * @return generated UUID
-     */
-    private String generateClientId() {
-        return UUID.randomUUID().toString();
     }
 }
