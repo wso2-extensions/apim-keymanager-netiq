@@ -166,7 +166,6 @@ public class NamOauthClient extends AbstractKeyManager {
             log.debug(String.format("Updating oAuth application in NetIQ authorization server for the consumer " +
                     "key %s.", clientId));
         }
-        // Getting Client Instance Url and API Key from Config.
         updateAccessToken(oAuthApplicationInfo);
         String updateEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT + "/" + clientId;
 
@@ -227,7 +226,6 @@ public class NamOauthClient extends AbstractKeyManager {
                     " %s.", clientId));
         }
         updateAccessToken(null);
-        // Getting Client Instance Url and API Key from Config.
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         String deleteEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT + "/" + clientId;
 
@@ -389,7 +387,14 @@ public class NamOauthClient extends AbstractKeyManager {
         tokenInfo.setConsumerKey(audience);
         tokenInfo.setEndUserName(userId);
         tokenInfo.setValidityPeriod(expriresIn * 1000);
-        tokenInfo.setScope(generateStringArray(scope));
+        if (scope != null) {
+            int i = 0;
+            String[] scopes = new String[scope.size()];
+            for (Object obj : scope) {
+                scopes[i++] = obj.toString();
+            }
+            tokenInfo.setScope(scopes);
+        }
 
         if (!StringUtils.isEmpty(tokenId)) {
             tokenInfo.addParameter(NAMConstants.TOKEN_ID, tokenId);
@@ -681,11 +686,13 @@ public class NamOauthClient extends AbstractKeyManager {
 
         String clientName = appInfo.getClientName();
         if (StringUtils.isEmpty(clientName)) {
-            handleException("Mandatory parameter " + NAMConstants.CLIENT_ID + " is missing.");
+            handleException("Mandatory parameter " + NAMConstants.CLIENT_NAME + " is missing.");
         }
-        // todo : how to get client_id ?
-        params.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
         params.add(new BasicNameValuePair(NAMConstants.CLIENT_NAME, clientName));
+
+        if (StringUtils.isEmpty(clientId)) {
+            params.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
+        }
 
         String redirectionUri = appInfo.getCallBackURL();
         if (!StringUtils.isEmpty(redirectionUri)) {
