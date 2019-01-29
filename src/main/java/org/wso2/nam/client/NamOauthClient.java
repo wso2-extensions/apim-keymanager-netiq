@@ -329,9 +329,15 @@ public class NamOauthClient extends AbstractKeyManager {
                     "when validating token.");
         }
 
+
         tokenInfo.setConsumerKey(audience);
         tokenInfo.setEndUserName(userId);
         tokenInfo.setValidityPeriod(expriresIn * 1000);
+        if (expriresIn > 0) {
+            tokenInfo.setTokenValid(true);
+        }
+        tokenInfo.setIssuedTime(System.currentTimeMillis());
+
         if (scope != null) {
             int i = 0;
             String[] scopes = new String[scope.size()];
@@ -649,7 +655,6 @@ public class NamOauthClient extends AbstractKeyManager {
      * creation request.
      *
      * @param response Response received for the application creation request
-     * @param clientId Cliend id of the application which was created
      * @return an OAuthApplicationInfo instance which needs to be returned after an oAuth applciation is created
      * @throws APIManagementException
      */
