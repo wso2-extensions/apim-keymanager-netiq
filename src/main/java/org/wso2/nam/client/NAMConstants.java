@@ -9,6 +9,7 @@ public class NAMConstants {
     public static final String TOKEN_ENDPOINT = "/nidp/oauth/nam/token";
     public static final String TOKEN_INFO_ENDPOINT = "/nidp/oauth/nam/tokeninfo";
     public static final String REVOKE_ENDPOINT = "/nidp/oauth/nam/revoke";
+    public static final String URL_RESOURCE_SEPERATOR = "/";
     public static final String CONTENT_TYPE = "Content-Type";
     public static final String APPLICATION_JSON = "application/json";
     public static final String APPLICATIN_FORM_URL_ENCODED = "application/x-www-form-urlencoded";
@@ -51,6 +52,11 @@ public class NAMConstants {
     public static final String USER_ID = "user_id";
     public static final String ISSUER = "issuer";
     public static final String TOKEN_ID = "token_id";
+    public static final String KEY_TYPE = "key_type";
+    public static final String SANDBOX = "SANDBOX";
+    public static final String PRODUCTION = "PRODUCTION";
+    public static final String SUFFIX_SANDBOX = "_sandbox";
+    public static final String SUFFIX_PRODUCTION = "_production";
 
     public static final String CONFIG_CLIENT_ID = "ClientId";
     public static final String CONFIG_CLIENT_SECRET = "ClientSecret";
@@ -65,6 +71,7 @@ public class NAMConstants {
     public static final String NAM_GRANT_TYPE_SEPERATOR = " ";
     public static final String INFO_SCOPE_SEPERATOR = ",";
     public static final String INFO_GRANT_TYPE_SEPERATOR = ",";
+    public static final String URI_SEPERATOR = ",";
 
 
     public static final String ERROR_ENCODING_METHOD_NOT_SUPPORTED = "Encoding method is not supported";
@@ -72,4 +79,10 @@ public class NAMConstants {
     public static final String STRING_FORMAT = "%s %s";
     public static final String ERROR_CLIENT_PROTOCOL =
             "HTTP error has occurred while sending request to OAuth Provider.";
+
+    public static final String DEFAULT_SCOPE = "urn:netiq.com:nam:scope:oauth:registration:full";
+    public static final String DEFAULT_REDIRECT_URI = "https://client.example.org/callback";
+    public static final String DEFAULT_RESPONSE_TYPE = "code";
+    public static final String DEFAULT_RESPONSE_TYPE_SEPERATOR = ",";
+
 }

@@ -31,7 +31,8 @@ import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpDelete;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.message.BasicNameValuePair;
@@ -58,10 +59,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * This class contains the key manager implementation for WSO2 APIM considering Net IQ as the access manager.
@@ -73,11 +74,15 @@ public class NamOauthClient extends AbstractKeyManager {
     private String apiKey;
     private String accessToken;
     private String refreshToken;
+    private Map<String, String> oAuthAppTokens;
+    private long accessTokenIssuedTime;
+    private long validityPeriod;
 
     @Override
     public void loadConfiguration(KeyManagerConfiguration keyManagerConfiguration) throws APIManagementException {
         this.configuration = keyManagerConfiguration;
         namInstanceURL = configuration.getParameter(NAMConstants.CONFIG_NAM_INSTANCE_URL);
+        oAuthAppTokens = new HashMap<String, String>();
     }
 
     @Override
@@ -90,71 +95,9 @@ public class NamOauthClient extends AbstractKeyManager {
                     clientName));
         }
 
-        updateAccessToken(oAuthApplicationInfo);
-
-        String[] scope = (String[]) ((String) oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_SCOPE))
-                .split(NAMConstants.INFO_SCOPE_SEPERATOR);
-        Object tokenGrantType = oAuthApplicationInfo.getParameter(NAMConstants.INFO_TOKEN_INFO);
-        String tokenType = oAuthApplicationInfo.getTokenType();
-
-        CloseableHttpClient httpClient = HttpClientBuilder.create().build();
-        String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT;
-        List<NameValuePair> params = new ArrayList<NameValuePair>();
-        oAuthApplicationInfo.setClientId(UUID.randomUUID().toString());
-        UrlEncodedFormEntity urlEncodedFormEntity = createPayloadFromOAuthAppInfo(oAuthApplicationInfo, params);
-
-        HttpPost httpPost = new HttpPost(registrationEndpoint);
-        try {
-            httpPost.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATIN_FORM_URL_ENCODED);
-            httpPost.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
-            httpPost.setEntity(urlEncodedFormEntity);
-
-            HttpResponse response = httpClient.execute(httpPost);
-            int statusCode = response.getStatusLine().getStatusCode();
-            HttpEntity entity = response.getEntity();
-            if (entity == null) {
-                handleException(String.format(NAMConstants.STRING_FORMAT,
-                        NAMConstants.ERROR_COULD_NOT_READ_HTTP_ENTITY, response));
-            }
-
-            BufferedReader reader = new BufferedReader(new InputStreamReader(entity.getContent(), NAMConstants.UTF_8));
-            JSONObject responseObject = getParsedObjectByReader(reader);
-
-            //TODO : Handle response and generate oAuthApplicationInfo
-            // If successful a 201 will be returned.
-            if (HttpStatus.SC_CREATED == statusCode) {
-                if (responseObject != null) {
-                    oAuthApplicationInfo = createOAuthAppInfoFromResponse(responseObject,
-                            oAuthApplicationInfo.getClientId());
-                    if (scope != null) {
-                        oAuthApplicationInfo.addParameter(NAMConstants.TOKEN_SCOPE, scope);
-                    }
-                    if (tokenGrantType != null) {
-                        oAuthApplicationInfo.addParameter(NAMConstants.INFO_TOKEN_GRANT_TYPE, tokenGrantType);
-                    }
-                    oAuthApplicationInfo.setTokenType(tokenType);
-                    return oAuthApplicationInfo;
-                }
-            } else {
-                handleException(String.format("Error occured while registering the new oAuth applciation in NetIQ " +
-                        "access manager. Response : %s. Received staus code : ", responseObject.toJSONString(),
-                        statusCode));
-            }
-
-        } catch (UnsupportedEncodingException e) {
-            handleException(String.format("Unsupported encoding method has been used when creating a new oAuth " +
-                    "application for %s.", oAuthApplicationInfo.getClientId()), e);
-        } catch (ClientProtocolException e) {
-            throw new APIManagementException(String.format("Error occured while sending an http reqeust for creating " +
-                    "a new oAuth application for %s", oAuthApplicationInfo.getClientId()), e);
-        } catch (IOException e) {
-            handleException(String.format("Error occurred while reading response body when creating a client " +
-                    "application for %s.", oAuthApplicationInfo.getClientId()), e);
-        } catch (ParseException e) {
-            handleException(String.format("Error occurred while parsing response when creating a client application " +
-                    "for %s.", oAuthApplicationInfo.getClientId()), e);
-        }
-        return null;
+        updateNamAccessToken(oAuthApplicationInfo);
+        OAuthApplicationInfo info = createApplication(oAuthApplicationInfo);
+        return generateAccessTokenForApp(info);
     }
 
     @Override
@@ -166,24 +109,26 @@ public class NamOauthClient extends AbstractKeyManager {
             log.debug(String.format("Updating oAuth application in NetIQ authorization server for the consumer " +
                     "key %s.", clientId));
         }
-        updateAccessToken(oAuthApplicationInfo);
-        String updateEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT + "/" + clientId;
+        updateNamAccessToken(oAuthApplicationInfo);
+        String updateEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT + NAMConstants.URL_RESOURCE_SEPERATOR +
+                clientId;
 
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         BufferedReader reader = null;
-        List<NameValuePair> params = new ArrayList<NameValuePair>();
+//        List<NameValuePair> params = new ArrayList<NameValuePair>();
+        JSONObject params = getApplication(clientId);
         if (StringUtils.isNotEmpty(clientId)) {
-            params.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
+            params.put(NAMConstants.CLIENT_ID, clientId);
         }
         try {
             // Create the JSON Payload that should be sent to OAuth Server.
-            UrlEncodedFormEntity urlEncodedFormEntity = createPayloadFromOAuthAppInfo(oAuthApplicationInfo, params);
-            HttpPut httpPut = new HttpPut(updateEndpoint);
-            httpPut.setEntity(urlEncodedFormEntity);
-            httpPut.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATION_JSON);
+            createPayloadFromOAuthAppInfo(oAuthApplicationInfo, params);
+            HttpPost httpPost = new HttpPost(updateEndpoint);
+            httpPost.setEntity(new StringEntity(params.toJSONString(), ContentType.APPLICATION_JSON));
+            httpPost.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATION_JSON);
             // Setting Authorization Header, with API Key.
-            httpPut.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
-            HttpResponse response = httpClient.execute(httpPut);
+            httpPost.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
+            HttpResponse response = httpClient.execute(httpPost);
             int statusCode = response.getStatusLine().getStatusCode();
             HttpEntity entity = response.getEntity();
             if (entity == null) {
@@ -194,14 +139,14 @@ public class NamOauthClient extends AbstractKeyManager {
             JSONObject responseObject = getParsedObjectByReader(reader);
             if (statusCode == HttpStatus.SC_OK) {
                 if (responseObject != null) {
-                    return createOAuthAppInfoFromResponse(responseObject, clientId);
+                    return createOAuthAppInfoFromResponse(responseObject);
                 } else {
                     handleException("Response body is empty for the update applicatoin request. Hence can not return " +
                             "oAuthApplicationInfo.");
                 }
             } else {
                 handleException(String.format("Error occurred when updating the client with client id %s." +
-                        " Response: %s. Received status code : %s.",
+                                " Response: %s. Received status code : %s.",
                         clientId, responseObject.toJSONString(), statusCode));
             }
         } catch (UnsupportedEncodingException e) {
@@ -225,7 +170,7 @@ public class NamOauthClient extends AbstractKeyManager {
             log.debug(String.format("Deleting the OAuth application from NetIQ authorization server for the client id" +
                     " %s.", clientId));
         }
-        updateAccessToken(null);
+        updateNamAccessToken(null);
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         String deleteEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT + "/" + clientId;
 
@@ -236,12 +181,12 @@ public class NamOauthClient extends AbstractKeyManager {
         try {
             HttpResponse response = httpClient.execute(httpDelete);
             int statusCode = response.getStatusLine().getStatusCode();
-            if (statusCode == HttpStatus.SC_NO_CONTENT) {
+            if (statusCode == HttpStatus.SC_OK) {
                 if (log.isDebugEnabled()) {
                     log.debug(String.format("OAuth applicaiton for the client id %s has been successfully deleted.",
                             clientId));
                 }
-            } else {
+            } else if (statusCode != HttpStatus.SC_OK) {
                 HttpEntity entity = response.getEntity();
                 if (entity == null) {
                     handleException(String.format("Could not read http entity for response %s while deleting " +
@@ -251,13 +196,13 @@ public class NamOauthClient extends AbstractKeyManager {
                         NAMConstants.UTF_8));
                 JSONObject responseObject = getParsedObjectByReader(reader);
                 handleException(String.format("Problem occurred while deleting OAuth application for the client id" +
-                        " %s. Response : %s. Reveived status code : ",
+                                " %s. Response : %s. Reveived status code : ",
                         clientId, responseObject.toJSONString(), statusCode));
             }
 
         } catch (IOException e) {
             handleException(String.format("Error occurred when reading response body while deleting OAuth application" +
-                            " for %s.", clientId), e);
+                    " for %s.", clientId), e);
         } catch (ParseException e) {
             handleException(String.format("Error occurred when parsing response while deleting OAuth application" +
                     " for %s.", clientId), e);
@@ -273,14 +218,14 @@ public class NamOauthClient extends AbstractKeyManager {
                     "client id %s.", clientId));
         }
 
-        updateAccessToken(null);
+        updateNamAccessToken(null);
         JSONObject responseJSON = getApplication(clientId);
 
         if (responseJSON == null) {
             handleException(String.format("Failed to retrieve application for client id %s.", clientId));
         }
 
-        return createOAuthAppInfoFromResponse(responseJSON, clientId);
+        return createOAuthAppInfoFromResponse(responseJSON);
     }
 
     @Override
@@ -296,7 +241,7 @@ public class NamOauthClient extends AbstractKeyManager {
 
         String clientSecret = (String) getApplication(clientId).get(NAMConstants.CLIENT_SECRET);
 
-        revokeAccessToken(clientId, clientSecret, refreshToken);
+        //revokeAccessToken(clientId, clientSecret, refreshToken);
         if (StringUtils.isEmpty(clientId)) {
             handleException("Mandatory parameter " + NAMConstants.CLIENT_SECRET + " is missing while requesting " +
                     "for a new application acces token.");
@@ -403,7 +348,7 @@ public class NamOauthClient extends AbstractKeyManager {
         if (!StringUtils.isEmpty(issuer)) {
             tokenInfo.addParameter(NAMConstants.ISSUER, issuer);
         }
-        return null;
+        return tokenInfo;
     }
 
     @Override
@@ -461,6 +406,72 @@ public class NamOauthClient extends AbstractKeyManager {
         return null;
     }
 
+    private OAuthApplicationInfo createApplication(OAuthApplicationInfo oAuthApplicationInfo)
+            throws APIManagementException {
+        String[] scope = (String[]) ((String) oAuthApplicationInfo.getParameter(NAMConstants.TOKEN_SCOPE))
+                .split(NAMConstants.INFO_SCOPE_SEPERATOR);
+        Object tokenGrantType = oAuthApplicationInfo.getParameter(NAMConstants.INFO_TOKEN_INFO);
+        String tokenType = oAuthApplicationInfo.getTokenType();
+
+        CloseableHttpClient httpClient = HttpClientBuilder.create().build();
+        String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT;
+        //List<NameValuePair> params = new ArrayList<NameValuePair>();
+        JSONObject params = new JSONObject();
+        createPayloadFromOAuthAppInfo(oAuthApplicationInfo, params);
+
+        HttpPost httpPost = new HttpPost(registrationEndpoint);
+        try {
+            httpPost.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATION_JSON);
+            httpPost.setHeader(NAMConstants.AUTHORIZATION, NAMConstants.BEARER + accessToken);
+            httpPost.setEntity(new StringEntity(params.toJSONString(), ContentType.APPLICATION_JSON));
+
+            HttpResponse response = httpClient.execute(httpPost);
+            int statusCode = response.getStatusLine().getStatusCode();
+            HttpEntity entity = response.getEntity();
+            if (entity == null) {
+                handleException(String.format(NAMConstants.STRING_FORMAT,
+                        NAMConstants.ERROR_COULD_NOT_READ_HTTP_ENTITY, response));
+            }
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(entity.getContent(), NAMConstants.UTF_8));
+            JSONObject responseObject = getParsedObjectByReader(reader);
+
+            //TODO : Handle response and generate oAuthApplicationInfo
+            // If successful a 201 will be returned.
+            if (HttpStatus.SC_CREATED == statusCode) {
+                if (responseObject != null) {
+                    oAuthApplicationInfo = createOAuthAppInfoFromResponse(responseObject);
+                    if (scope != null) {
+                        oAuthApplicationInfo.addParameter(NAMConstants.TOKEN_SCOPE, scope);
+                    }
+                    if (tokenGrantType != null) {
+                        oAuthApplicationInfo.addParameter(NAMConstants.INFO_TOKEN_GRANT_TYPE, tokenGrantType);
+                    }
+                    oAuthApplicationInfo.setTokenType(tokenType);
+                    return oAuthApplicationInfo;
+                }
+            } else {
+                handleException(String.format("Error occured while registering the new oAuth applciation in NetIQ " +
+                                "access manager. Response : %s. Received staus code : ", responseObject.toJSONString(),
+                        statusCode));
+            }
+
+        } catch (UnsupportedEncodingException e) {
+            handleException(String.format("Unsupported encoding method has been used when creating a new oAuth " +
+                    "application for %s.", oAuthApplicationInfo.getClientId()), e);
+        } catch (ClientProtocolException e) {
+            throw new APIManagementException(String.format("Error occured while sending an http reqeust for creating " +
+                    "a new oAuth application for %s", oAuthApplicationInfo.getClientId()), e);
+        } catch (IOException e) {
+            handleException(String.format("Error occurred while reading response body when creating a client " +
+                    "application for %s.", oAuthApplicationInfo.getClientId()), e);
+        } catch (ParseException e) {
+            handleException(String.format("Error occurred while parsing response when creating a client application " +
+                    "for %s.", oAuthApplicationInfo.getClientId()), e);
+        }
+        return null;
+    }
+
     /**
      * This method executes the retrieve oAuth application request.
      *
@@ -470,7 +481,8 @@ public class NamOauthClient extends AbstractKeyManager {
      */
     private JSONObject getApplication(String clientId) throws APIManagementException {
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
-        String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT;
+        String registrationEndpoint = namInstanceURL + NAMConstants.CLIENT_ENDPOINT +
+                NAMConstants.URL_RESOURCE_SEPERATOR + clientId;
 
         BufferedReader reader = null;
         try {
@@ -533,17 +545,44 @@ public class NamOauthClient extends AbstractKeyManager {
      *             access token
      * @throws APIManagementException
      */
-    private void updateAccessToken(OAuthApplicationInfo info) throws APIManagementException {
+    private void updateNamAccessToken(OAuthApplicationInfo info) throws APIManagementException {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Validating and updating the existing access token."));
         }
-        if (accessToken == null || doValidateAccessTokenRequest(accessToken) == null) {
-            String token = getAccessTokenWithPassword(info);
+
+        if (accessToken == null || isTokenExpired(validityPeriod)) {
+            JSONObject respone = getAccessTokenWithPassword(info);
+            validityPeriod = (Long) respone.get(NAMConstants.EXPIRES_IN);
+            accessTokenIssuedTime = System.currentTimeMillis();
+            String token = (String) respone.get(NAMConstants.ACCESS_TOKEN);
             if (StringUtils.isEmpty(token)) {
                 handleException("Failed to get a new access token for " + info.getClientId());
             }
             this.accessToken = token;
         }
+    }
+
+    private OAuthApplicationInfo generateAccessTokenForApp(OAuthApplicationInfo info) throws APIManagementException {
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Validating and updating the existing access token."));
+        }
+        String clientId = info.getClientId();
+        List<NameValuePair> params = new ArrayList<NameValuePair>();
+        params.add(new BasicNameValuePair(NAMConstants.USERNAME,
+                configuration.getParameter(NAMConstants.CONFIG_USERNAME)));
+        params.add(new BasicNameValuePair(NAMConstants.PASSWORD,
+                configuration.getParameter(NAMConstants.CONFIG_PASSWORD)));
+        params.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
+        params.add(new BasicNameValuePair(NAMConstants.CLIENT_SECRET, info.getClientSecret()));
+        params.add(new BasicNameValuePair(NAMConstants.GRANT_TYPE, NAMConstants.PASSWORD));
+
+        JSONObject jsonObject = getAccessTokenWithClientCredentials(clientId, params);
+        String oAuthAppToken = (String) jsonObject.get(NAMConstants.ACCESS_TOKEN);
+        info.addParameter(NAMConstants.ACCESS_TOKEN, oAuthAppToken);
+
+        oAuthAppTokens.put(clientId, oAuthAppToken);
+
+        return info;
     }
 
     /**
@@ -614,14 +653,12 @@ public class NamOauthClient extends AbstractKeyManager {
      * @return an OAuthApplicationInfo instance which needs to be returned after an oAuth applciation is created
      * @throws APIManagementException
      */
-    private OAuthApplicationInfo createOAuthAppInfoFromResponse(JSONObject response, String clientId)
+    private OAuthApplicationInfo createOAuthAppInfoFromResponse(JSONObject response)
             throws APIManagementException {
-        if (log.isDebugEnabled()) {
-            log.debug(String.format("Retrieving the OAuth applicatoin from NetIQ authorization server for the " +
-                    "client id %s.", clientId));
-        }
+
         OAuthApplicationInfo appInfo = new OAuthApplicationInfo();
 
+        String clientId = (String) response.get(NAMConstants.CLIENT_ID);
         String clientName = (String) response.get(NAMConstants.CLIENT_NAME);
         String clientSecret = (String) response.get(NAMConstants.CLIENT_SECRET);
 
@@ -653,6 +690,7 @@ public class NamOauthClient extends AbstractKeyManager {
                 types.append(type).append(NAMConstants.NAM_GRANT_TYPE_SEPERATOR);
             }
             appInfo.addParameter(NAMConstants.GRANT_TYPES, types.toString());
+//            appInfo.addParameter(NAMConstants.GRANT_TYPES, (String[]) grantTypes.toArray());
         }
         return appInfo;
     }
@@ -676,37 +714,46 @@ public class NamOauthClient extends AbstractKeyManager {
      * @return a UrlEncodedFormEntity which needs to be included as the application creation request
      * @throws APIManagementException
      */
-    private UrlEncodedFormEntity createPayloadFromOAuthAppInfo(OAuthApplicationInfo appInfo,
-                                                  List<NameValuePair> params) throws APIManagementException {
+    private void createPayloadFromOAuthAppInfo(OAuthApplicationInfo appInfo,
+                                               JSONObject params) throws APIManagementException {
         String clientId = appInfo.getClientId();
         if (log.isDebugEnabled()) {
             log.debug(String.format("Creating payload of OAuth application creation request for client id %s.",
                     clientId));
         }
 
-        String clientName = appInfo.getClientName();
+        String keyType = (String) appInfo.getParameter(NAMConstants.KEY_TYPE);
+        String clientName = appInfo.getClientName() + '_' + keyType;
         if (StringUtils.isEmpty(clientName)) {
             handleException("Mandatory parameter " + NAMConstants.CLIENT_NAME + " is missing.");
         }
-        params.add(new BasicNameValuePair(NAMConstants.CLIENT_NAME, clientName));
+//        params.add(new BasicNameValuePair(NAMConstants.CLIENT_NAME, clientName));
+        params.put(NAMConstants.CLIENT_NAME, clientName);
 
-        if (StringUtils.isEmpty(clientId)) {
-            params.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
+        if (!StringUtils.isEmpty(clientId)) {
+            params.put(NAMConstants.CLIENT_ID, clientId);
         }
 
         String redirectionUri = appInfo.getCallBackURL();
+        JSONArray jsonArray = new JSONArray();
         if (!StringUtils.isEmpty(redirectionUri)) {
-            params.add(new BasicNameValuePair(NAMConstants.REDIRECTION_URI, redirectionUri));
+//            params.add(new BasicNameValuePair(NAMConstants.REDIRECTION_URI, redirectionUri));
+            Collections.addAll(jsonArray, redirectionUri.split(NAMConstants.URI_SEPERATOR));
+            params.put(NAMConstants.REDIRECT_URIS, jsonArray);
+        } else {
+            Collections.addAll(jsonArray, NAMConstants.DEFAULT_REDIRECT_URI.split(NAMConstants.URI_SEPERATOR));
+            params.put(NAMConstants.REDIRECT_URIS, jsonArray);
         }
 
         String grantTypes = (String) appInfo.getParameter(NAMConstants.GRANT_TYPES);
         if (grantTypes != null) {
-            JSONArray jsonArray = new JSONArray();
-            Collections.addAll(jsonArray, grantTypes.split(NAMConstants.INFO_GRANT_TYPE_SEPERATOR));
-            params.add(new BasicNameValuePair(NAMConstants.GRANT_TYPES, jsonArray.toJSONString()));
+            JSONArray grantTypeList = new JSONArray();
+            Collections.addAll(grantTypeList, grantTypes.split(NAMConstants.INFO_GRANT_TYPE_SEPERATOR));
+//            params.add(new BasicNameValuePair(NAMConstants.GRANT_TYPES, jsonArray));
+            params.put(NAMConstants.GRANT_TYPES, grantTypeList);
         }
 
-       JSONObject jsonObject;
+        JSONObject jsonObject;
         String jsonString = appInfo.getJsonString();
         try {
             jsonObject = (JSONObject) new JSONParser().parse(jsonString);
@@ -718,91 +765,111 @@ public class NamOauthClient extends AbstractKeyManager {
         if (jsonObject != null) {
             String applicationType = (String) jsonObject.get(NAMConstants.APPLICATION_TYPE);
             if (!StringUtils.isEmpty(applicationType)) {
-                params.add(new BasicNameValuePair(NAMConstants.APPLICATION_TYPE, applicationType));
+//                params.add(new BasicNameValuePair(NAMConstants.APPLICATION_TYPE, applicationType));
+                params.put(NAMConstants.APPLICATION_TYPE, applicationType);
             }
 
             String responseTypes = (String) jsonObject.get(NAMConstants.RESPONSE_TYPES);
+            JSONArray types = new JSONArray();
             if (!StringUtils.isEmpty(responseTypes)) {
-                params.add(new BasicNameValuePair(NAMConstants.RESPONSE_TYPES, responseTypes));
+//                params.add(new BasicNameValuePair(NAMConstants.RESPONSE_TYPES, responseTypes));
+                params.put(NAMConstants.RESPONSE_TYPES, responseTypes);
+            }  else {
+                Collections.addAll(types, NAMConstants.DEFAULT_RESPONSE_TYPE.split(NAMConstants.URI_SEPERATOR));
+                params.put(NAMConstants.RESPONSE_TYPES, types);
             }
 
             String alwaysIssueNewRefreshToken = (String) jsonObject.get(NAMConstants.ALWAYS_ISSUE_NEW_REFRESH_TOKEN);
             if (!StringUtils.isEmpty(alwaysIssueNewRefreshToken)) {
-                params.add(new BasicNameValuePair(NAMConstants.ALWAYS_ISSUE_NEW_REFRESH_TOKEN,
-                        alwaysIssueNewRefreshToken));
+                /*params.add(new BasicNameValuePair(NAMConstants.ALWAYS_ISSUE_NEW_REFRESH_TOKEN,
+                        alwaysIssueNewRefreshToken));*/
+                params.put(NAMConstants.ALWAYS_ISSUE_NEW_REFRESH_TOKEN, alwaysIssueNewRefreshToken);
             }
 
             String authzCodeTTL = (String) jsonObject.get(NAMConstants.AUTH_CODE_TTL);
             if (!StringUtils.isEmpty(authzCodeTTL)) {
-                params.add(new BasicNameValuePair(NAMConstants.AUTH_CODE_TTL, authzCodeTTL));
+                //params.add(new BasicNameValuePair(NAMConstants.AUTH_CODE_TTL, authzCodeTTL));
+                params.put(NAMConstants.AUTH_CODE_TTL, authzCodeTTL);
             }
 
             String accessTokenTTL = (String) jsonObject.get(NAMConstants.ACCESS_TOKEN_TTL);
             if (!StringUtils.isEmpty(accessTokenTTL)) {
-                params.add(new BasicNameValuePair(NAMConstants.ACCESS_TOKEN_TTL, accessTokenTTL));
+//                params.add(new BasicNameValuePair(NAMConstants.ACCESS_TOKEN_TTL, accessTokenTTL));
+                params.put(NAMConstants.ACCESS_TOKEN_TTL, accessTokenTTL);
             }
 
             String refreshTokenTTL = (String) jsonObject.get(NAMConstants.REFRESH_TOKEN_TTL);
             if (!StringUtils.isEmpty(refreshTokenTTL)) {
-                params.add(new BasicNameValuePair(NAMConstants.REFRESH_TOKEN_TTL, refreshTokenTTL));
+//                params.add(new BasicNameValuePair(NAMConstants.REFRESH_TOKEN_TTL, refreshTokenTTL));
+                params.put(NAMConstants.REFRESH_TOKEN_TTL, refreshTokenTTL);
             }
 
             String corsdomains = (String) jsonObject.get(NAMConstants.CORS_DOMAINS);
             if (!StringUtils.isEmpty(corsdomains)) {
-                params.add(new BasicNameValuePair(NAMConstants.CORS_DOMAINS, corsdomains));
+//                params.add(new BasicNameValuePair(NAMConstants.CORS_DOMAINS, corsdomains));
+                params.put(NAMConstants.CORS_DOMAINS, corsdomains);
             }
 
             String logoUri = (String) jsonObject.get(NAMConstants.LOGO_URI);
             if (!StringUtils.isEmpty(logoUri)) {
-                params.add(new BasicNameValuePair(NAMConstants.LOGO_URI, logoUri));
+//                params.add(new BasicNameValuePair(NAMConstants.LOGO_URI, logoUri));
+                params.put(NAMConstants.LOGO_URI, logoUri);
             }
 
             String policyUri = (String) jsonObject.get(NAMConstants.POLICY_URI);
             if (!StringUtils.isEmpty(policyUri)) {
-                params.add(new BasicNameValuePair(NAMConstants.POLICY_URI, policyUri));
+//                params.add(new BasicNameValuePair(NAMConstants.POLICY_URI, policyUri));
+                params.put(NAMConstants.POLICY_URI, policyUri);
             }
 
             String tosUri = (String) jsonObject.get(NAMConstants.TOS_URI);
             if (!StringUtils.isEmpty(tosUri)) {
-                params.add(new BasicNameValuePair(NAMConstants.TOS_URI, tosUri));
+//                params.add(new BasicNameValuePair(NAMConstants.TOS_URI, tosUri));
+                params.put(NAMConstants.TOS_URI, tosUri);
             }
 
             String contacts = (String) jsonObject.get(NAMConstants.CONTACTS);
             if (!StringUtils.isEmpty(contacts)) {
-                params.add(new BasicNameValuePair(NAMConstants.CONTACTS, contacts));
+//                params.add(new BasicNameValuePair(NAMConstants.CONTACTS, contacts));
+                params.put(NAMConstants.CONTACTS, contacts);
             }
 
             String jwksUri = (String) jsonObject.get(NAMConstants.JWKS_URI);
             if (!StringUtils.isEmpty(jwksUri)) {
-                params.add(new BasicNameValuePair(NAMConstants.JWKS_URI, jwksUri));
+//                params.add(new BasicNameValuePair(NAMConstants.JWKS_URI, jwksUri));
+                params.put(NAMConstants.JWKS_URI, jwksUri);
             }
 
             String idTokenSignedResponseAlg = (String) jsonObject.get(NAMConstants.ID_TOKEN_SIGNED_RESPONSE_ALG);
             if (!StringUtils.isEmpty(idTokenSignedResponseAlg)) {
-                params.add(new BasicNameValuePair(NAMConstants.ID_TOKEN_SIGNED_RESPONSE_ALG, idTokenSignedResponseAlg));
+//              params.add(new BasicNameValuePair(NAMConstants.ID_TOKEN_SIGNED_RESPONSE_ALG, idTokenSignedResponseAlg));
+                params.put(NAMConstants.ID_TOKEN_SIGNED_RESPONSE_ALG, idTokenSignedResponseAlg);
             }
 
             String idTokenEncryptedResponseAlg =
                     (String) jsonObject.get(NAMConstants.ID_TOKEN_ENCRYPTED_RESPONSE_ALG);
             if (!StringUtils.isEmpty(idTokenEncryptedResponseAlg)) {
-                params.add(new BasicNameValuePair(NAMConstants.ID_TOKEN_ENCRYPTED_RESPONSE_ALG,
-                        idTokenEncryptedResponseAlg));
+               /* params.add(new BasicNameValuePair(NAMConstants.ID_TOKEN_ENCRYPTED_RESPONSE_ALG,
+                        idTokenEncryptedResponseAlg));*/
+                params.put(NAMConstants.ID_TOKEN_ENCRYPTED_RESPONSE_ALG, idTokenEncryptedResponseAlg);
             }
 
             String idTokenEnctryptedResponseEnc =
                     (String) jsonObject.get(NAMConstants.ID_TOKEN_ENCRYPTED_RESPONSE_ENC);
             if (!StringUtils.isEmpty(idTokenEnctryptedResponseEnc)) {
-                params.add(new BasicNameValuePair(NAMConstants.ID_TOKEN_ENCRYPTED_RESPONSE_ENC,
-                        idTokenEnctryptedResponseEnc));
+                /*params.add(new BasicNameValuePair(NAMConstants.ID_TOKEN_ENCRYPTED_RESPONSE_ENC,
+                        idTokenEnctryptedResponseEnc));*/
+                params.put(NAMConstants.ID_TOKEN_ENCRYPTED_RESPONSE_ENC, idTokenEnctryptedResponseEnc);
             }
         }
 
-        try {
-            return new UrlEncodedFormEntity(params);
-        } catch (UnsupportedEncodingException e) {
-            throw new APIManagementException(NAMConstants.ERROR_ENCODING_METHOD_NOT_SUPPORTED, e);
-        }
+//        try {
+////            return new UrlEncodedFormEntity(params);
+//        } catch (UnsupportedEncodingException e) {
+//            throw new APIManagementException(NAMConstants.ERROR_ENCODING_METHOD_NOT_SUPPORTED, e);
+//        }
     }
+
 
     /**
      * This method calls the revoke endpoint of the NetIQ access maanger to revoke a given token.
@@ -844,7 +911,7 @@ public class NamOauthClient extends AbstractKeyManager {
                 }
             } else {
                 handleException(String.format("Problem occurred while revoking the access token for client id %s. " +
-                                "Status code %d was received for the revoke request.", clientId, statusCode));
+                        "Status code %d was received for the revoke request.", clientId, statusCode));
             }
         } catch (UnsupportedEncodingException e) {
             handleException(String.format("Unsupported encoding has been used while revoking token for %s.",
@@ -934,13 +1001,13 @@ public class NamOauthClient extends AbstractKeyManager {
                 if (responseJSON != null) {
                     if (log.isDebugEnabled()) {
                         log.debug(String.format("JSON response after getting new access token: %s",
-                                responseJSON.toJSONString()));
+                                responseJSON));
                     }
                     return responseJSON;
                 }
             } else {
                 log.error(String.format("Failed to get accessToken for client id %s. Response: %s. Received status " +
-                                "code : ", clientId, responseJSON.toJSONString(), statusCode));
+                        "code : ", clientId, responseJSON.toJSONString(), statusCode));
             }
         } catch (UnsupportedEncodingException e) {
             handleException(String.format("Error occurred when encoding while getting a new access token for %s.",
@@ -999,7 +1066,7 @@ public class NamOauthClient extends AbstractKeyManager {
      * @return access token received from the NetIQ access manager for the given user credentials.
      * @throws APIManagementException
      */
-    private String getAccessTokenWithPassword(OAuthApplicationInfo info) throws APIManagementException {
+    private JSONObject getAccessTokenWithPassword(OAuthApplicationInfo info) throws APIManagementException {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Getting a new access token using resource owner flow."));
         }
@@ -1046,7 +1113,9 @@ public class NamOauthClient extends AbstractKeyManager {
         }
         params.add(new BasicNameValuePair(NAMConstants.GRANT_TYPE, grantType));
 
-       CloseableHttpClient httpClient = HttpClientBuilder.create().build();
+        params.add(new BasicNameValuePair(NAMConstants.SCOPE, NAMConstants.DEFAULT_SCOPE));
+
+        CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         HttpPost httpPost = new HttpPost(registrationEndpoint);
         try {
             httpPost.setHeader(NAMConstants.CONTENT_TYPE, NAMConstants.APPLICATIN_FORM_URL_ENCODED);
@@ -1066,7 +1135,7 @@ public class NamOauthClient extends AbstractKeyManager {
             if (HttpStatus.SC_OK == statusCode) {
                 if (responseObject != null) {
                     refreshToken = (String) responseObject.get(NAMConstants.REFRESH_TOKEN);
-                    return (String) responseObject.get(NAMConstants.ACCESS_TOKEN);
+                    return responseObject;
                 } else {
                     handleException(String.format("Response body does not contain the %s when " +
                                     "getting a new access token while getting a new access token for %s.",
@@ -1074,7 +1143,7 @@ public class NamOauthClient extends AbstractKeyManager {
                 }
             } else {
                 handleException(String.format("Error occured while getting a new access token for %s." +
-                        "Response : %s. Received status code : %s",
+                                "Response : %s. Received status code : %s",
                         clientId, responseObject.toJSONString(), statusCode));
             }
 
@@ -1144,5 +1213,9 @@ public class NamOauthClient extends AbstractKeyManager {
         } catch (UnsupportedEncodingException e) {
             throw new APIManagementException(NAMConstants.ERROR_ENCODING_METHOD_NOT_SUPPORTED, e);
         }
+    }
+
+    private boolean isTokenExpired(long validityTimePeriod) {
+        return System.currentTimeMillis() - accessTokenIssuedTime > validityPeriod ? true : false;
     }
 }
