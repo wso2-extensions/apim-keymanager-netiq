@@ -77,12 +77,17 @@ public class NamOauthClient extends AbstractKeyManager {
     private Map<String, String> oAuthAppTokens;
     private long accessTokenIssuedTime;
     private long validityPeriod;
+    private String username;
+    private String password;
 
     @Override
     public void loadConfiguration(KeyManagerConfiguration keyManagerConfiguration) throws APIManagementException {
         this.configuration = keyManagerConfiguration;
         namInstanceURL = configuration.getParameter(NAMConstants.CONFIG_NAM_INSTANCE_URL);
         oAuthAppTokens = new HashMap<String, String>();
+        username = configuration.getParameter(NAMConstants.CONFIG_USERNAME);
+        password = configuration.getParameter(NAMConstants.CONFIG_PASSWORD);
+
     }
 
     @Override
@@ -97,7 +102,8 @@ public class NamOauthClient extends AbstractKeyManager {
 
         updateNamAccessToken(oAuthApplicationInfo);
         OAuthApplicationInfo info = createApplication(oAuthApplicationInfo);
-        return generateAccessTokenForApp(info);
+//        return generateAccessTokenForApp(info);
+        return info;
     }
 
     @Override
@@ -233,7 +239,7 @@ public class NamOauthClient extends AbstractKeyManager {
             throws APIManagementException {
         String clientId = accessTokenRequest.getClientId();
         if (log.isDebugEnabled()) {
-            log.debug(String.format("Retrieving the OAuth applicatoin from NetIQ authorization server for the " +
+            log.debug(String.format("Retrieving the OAuth application from NetIQ authorization server for the " +
                     "client id %s.", clientId));
         }
         AccessTokenInfo tokenInfo = new AccessTokenInfo();
@@ -244,7 +250,7 @@ public class NamOauthClient extends AbstractKeyManager {
         //revokeAccessToken(clientId, clientSecret, refreshToken);
         if (StringUtils.isEmpty(clientId)) {
             handleException("Mandatory parameter " + NAMConstants.CLIENT_SECRET + " is missing while requesting " +
-                    "for a new application acces token.");
+                    "for a new application access token.");
         }
 
         if (log.isDebugEnabled()) {
@@ -254,17 +260,21 @@ public class NamOauthClient extends AbstractKeyManager {
 
         List<NameValuePair> parameters = new ArrayList<NameValuePair>();
         if (grantType == null) {
-            grantType = NAMConstants.CLIENT_CREDENTIALS;
+            grantType = NAMConstants.PASSWORD;
         }
         parameters.add(new BasicNameValuePair(NAMConstants.GRANT_TYPE, grantType));
 
         String scopeString = convertToString(accessTokenRequest.getScope());
         if (StringUtils.isEmpty(scopeString)) {
+            parameters.add(new BasicNameValuePair(NAMConstants.SCOPE, NAMConstants.DEFAULT_SCOPE));
+        } else {
             parameters.add(new BasicNameValuePair(NAMConstants.SCOPE, scopeString));
         }
 
         parameters.add(new BasicNameValuePair(NAMConstants.CLIENT_ID, clientId));
         parameters.add(new BasicNameValuePair(NAMConstants.CLIENT_SECRET, clientSecret));
+        parameters.add(new BasicNameValuePair(NAMConstants.USERNAME, username));
+        parameters.add(new BasicNameValuePair(NAMConstants.PASSWORD, password));
 
 
         JSONObject responseJSON = getAccessTokenWithClientCredentials(clientId, parameters);
@@ -303,13 +313,13 @@ public class NamOauthClient extends AbstractKeyManager {
         }
         // handle responses
         String userId = (String) jsonResponse.get(NAMConstants.USER_ID);
-        Long expriresIn = (Long) jsonResponse.get(NAMConstants.EXPIRES_IN);
+        Long expiresIn = (Long) jsonResponse.get(NAMConstants.EXPIRES_IN);
         JSONArray scope = (JSONArray) jsonResponse.get(NAMConstants.SCOPE);
         String audience = (String) jsonResponse.get(NAMConstants.AUDIENCE);
         String tokenId = (String) jsonResponse.get(NAMConstants.TOKEN_ID);
         String issuer = (String) jsonResponse.get(NAMConstants.ISSUER);
 
-        if (expriresIn == null) {
+        if (expiresIn == null) {
             handleException("Mandatory parameter " + NAMConstants.EXPIRES_IN + " is missing in the response " +
                     "when validating token.");
         }
@@ -332,8 +342,8 @@ public class NamOauthClient extends AbstractKeyManager {
 
         tokenInfo.setConsumerKey(audience);
         tokenInfo.setEndUserName(userId);
-        tokenInfo.setValidityPeriod(expriresIn * 1000);
-        if (expriresIn > 0) {
+        tokenInfo.setValidityPeriod(expiresIn);
+        if (expiresIn > 0) {
             tokenInfo.setTokenValid(true);
         }
         tokenInfo.setIssuedTime(System.currentTimeMillis());
@@ -556,7 +566,7 @@ public class NamOauthClient extends AbstractKeyManager {
             log.debug(String.format("Validating and updating the existing access token."));
         }
 
-        if (accessToken == null || isTokenExpired(validityPeriod)) {
+        if (accessToken == null || isTokenExpired()) {
             JSONObject respone = getAccessTokenWithPassword(info);
             validityPeriod = (Long) respone.get(NAMConstants.EXPIRES_IN);
             accessTokenIssuedTime = System.currentTimeMillis();
@@ -1051,7 +1061,7 @@ public class NamOauthClient extends AbstractKeyManager {
 
         tokenInfo.setTokenValid(true);
         tokenInfo.setAccessToken((String) responseJSON.get(NAMConstants.ACCESS_TOKEN));
-        tokenInfo.setValidityPeriod(expireTime * 1000);
+        tokenInfo.setValidityPeriod(expireTime);
 
         String tokenScopes = (String) responseJSON.get(NAMConstants.SCOPE);
         if (StringUtils.isNotEmpty(tokenScopes)) {
@@ -1220,7 +1230,7 @@ public class NamOauthClient extends AbstractKeyManager {
         }
     }
 
-    private boolean isTokenExpired(long validityTimePeriod) {
+    private boolean isTokenExpired() {
         return System.currentTimeMillis() - accessTokenIssuedTime > validityPeriod ? true : false;
     }
 }
