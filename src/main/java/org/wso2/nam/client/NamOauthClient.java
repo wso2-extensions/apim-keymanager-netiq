@@ -87,7 +87,6 @@ public class NamOauthClient extends AbstractKeyManager {
         oAuthAppTokens = new HashMap<String, String>();
         username = configuration.getParameter(NAMConstants.CONFIG_USERNAME);
         password = configuration.getParameter(NAMConstants.CONFIG_PASSWORD);
-
     }
 
     @Override
@@ -342,7 +341,7 @@ public class NamOauthClient extends AbstractKeyManager {
 
         tokenInfo.setConsumerKey(audience);
         tokenInfo.setEndUserName(userId);
-        tokenInfo.setValidityPeriod(expiresIn);
+        tokenInfo.setValidityPeriod(expiresIn * 1000);
         if (expiresIn > 0) {
             tokenInfo.setTokenValid(true);
         }
