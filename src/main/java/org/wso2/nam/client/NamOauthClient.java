@@ -68,7 +68,6 @@ import java.util.Set;
 public class NamOauthClient extends AbstractKeyManager {
     private static final Log log = LogFactory.getLog(NamOauthClient.class);
     private KeyManagerConfiguration configuration;
-    private String namInstanceURL;
     private String accessToken;
     private long accessTokenIssuedTime;
     private long validityPeriod;
@@ -83,7 +82,6 @@ public class NamOauthClient extends AbstractKeyManager {
     @Override
     public void loadConfiguration(KeyManagerConfiguration keyManagerConfiguration) throws APIManagementException {
         configuration = keyManagerConfiguration;
-        namInstanceURL = configuration.getParameter(NAMConstants.CONFIG_NAM_INSTANCE_URL);
         username = configuration.getParameter(NAMConstants.CONFIG_USERNAME);
         password = configuration.getParameter(NAMConstants.CONFIG_PASSWORD);
         namAppClientId = configuration.getParameter(NAMConstants.CONFIG_CLIENT_ID);
@@ -215,7 +213,7 @@ public class NamOauthClient extends AbstractKeyManager {
             if (statusCode == HttpStatus.SC_OK) {
                 log.info(String.format("OAuth application for the client id %s has been successfully deleted.",
                         clientId));
-            } else if (statusCode != HttpStatus.SC_OK) {
+            } else {
                 HttpEntity entity = response.getEntity();
                 if (entity == null) {
                     handleException(String.format("Could not read http entity for response %s while deleting " +
@@ -225,7 +223,7 @@ public class NamOauthClient extends AbstractKeyManager {
                         NAMConstants.UTF_8));
                 JSONObject responseObject = getParsedObjectByReader(reader);
                 handleException(String.format("Problem occurred while deleting OAuth application for the client id" +
-                                " %s. Response: %s. Response status code: ",
+                                " %s. Response: %s. Response status code: %s",
                         clientId, responseObject.toJSONString(), statusCode));
             }
 
@@ -937,7 +935,7 @@ public class NamOauthClient extends AbstractKeyManager {
     private AccessTokenInfo updateTokenInfo(AccessTokenInfo tokenInfo, JSONObject responseJSON) {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Update the access token info with JSON response: %s, after getting " +
-                    "new access token.", responseJSON));
+                    "the new access token.", responseJSON));
         }
         Long expireTime = (Long) responseJSON.get(NAMConstants.EXPIRES_IN);
         if (expireTime == null) {
@@ -1064,7 +1062,8 @@ public class NamOauthClient extends AbstractKeyManager {
     }
 
     /**
-     * This method is used to check whether the access token is expired
+     * This method is used to check whether the access token is expired.
+     *
      * @return true if the token has been expired, false if it's not
      */
     private boolean isTokenExpired() {
