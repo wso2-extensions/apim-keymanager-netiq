@@ -128,7 +128,7 @@ public class NamOauthClient extends AbstractKeyManager {
                     clientName));
         }
 
-        updateNamAccessToken(oAuthApplicationInfo);
+        updateNamAccessToken();
         OAuthApplicationInfo info = createApplication(oAuthApplicationInfo);
         return info;
     }
@@ -142,7 +142,7 @@ public class NamOauthClient extends AbstractKeyManager {
             log.debug(String.format("Updating oAuth application in NetIQ authorization server for the client " +
                     "id %s.", clientId));
         }
-        updateNamAccessToken(oAuthApplicationInfo);
+        updateNamAccessToken();
         String updateEndpoint = clientEndpoint + NAMConstants.URL_RESOURCE_SEPERATOR + clientId;
 
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
@@ -152,7 +152,6 @@ public class NamOauthClient extends AbstractKeyManager {
             params.put(NAMConstants.CLIENT_ID, clientId);
         }
         try {
-            // Create the JSON Payload that should be sent to OAuth Server.
             createPayloadFromOAuthAppInfo(oAuthApplicationInfo, params);
             HttpPost httpPost = new HttpPost(updateEndpoint);
             httpPost.setEntity(new StringEntity(params.toJSONString(), ContentType.APPLICATION_JSON));
@@ -200,7 +199,7 @@ public class NamOauthClient extends AbstractKeyManager {
             log.debug(String.format("Deleting the OAuth application from NetIQ authorization server for the client id" +
                     " %s.", clientId));
         }
-        updateNamAccessToken(null);
+        updateNamAccessToken();
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
         String deleteEndpoint = clientEndpoint + NAMConstants.URL_RESOURCE_SEPERATOR + clientId;
 
@@ -245,7 +244,7 @@ public class NamOauthClient extends AbstractKeyManager {
                     "client id %s.", clientId));
         }
 
-        updateNamAccessToken(null);
+        updateNamAccessToken();
         JSONObject responseJSON = getApplication(clientId);
 
         if (responseJSON == null) {
@@ -572,11 +571,9 @@ public class NamOauthClient extends AbstractKeyManager {
     /**
      * This method initiates validating the access token and updating it if necessary
      *
-     * @param info OAuthApplicationInfo of the application, which is related to the operations that require
-     *             access token
      * @throws APIManagementException
      */
-    private void updateNamAccessToken(OAuthApplicationInfo info) throws APIManagementException {
+    private void updateNamAccessToken() throws APIManagementException {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Validating and updating the existing access token for client %s", namAppClientId));
         }

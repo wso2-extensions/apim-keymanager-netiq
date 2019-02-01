@@ -22,7 +22,7 @@
 
     <groupId>org.wso2.nam.client</groupId>
     <artifactId>nam-oauth-client</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
 
     <dependencies>
         <dependency>
